@@ -1,0 +1,14 @@
+<!doctype html><meta charset="utf-8"><title>Presenter self-test: source</title>
+<style>html,body{margin:0;height:100%;background:#fff;font:36px sans-serif}
+.q{position:absolute;width:50%;height:50%}#g{left:0;top:0;background:#2e7d32}#b{right:0;bottom:0;background:#1565c0}
+p{position:absolute;left:52%;top:10%;color:#333}</style>
+<div class="q" id="g"></div><div class="q" id="b"></div><p>Source window test</p>
+<script>
+// ?popup=ms&life=ms: after a delay open a mock sign-in popup with window.open(), close it after `life` ms.
+// (Chrome blocks popups that are not user-initiated unless started with --disable-popup-blocking.)
+const q = new URLSearchParams(location.search);
+if (q.has("popup")) setTimeout(() => {
+  const w = window.open("popup.html", "signin", "popup,width=520,height=620,left=240,top=120");
+  if (w && q.has("life")) setTimeout(() => w.close(), +q.get("life"));
+}, +q.get("popup"));
+</script>

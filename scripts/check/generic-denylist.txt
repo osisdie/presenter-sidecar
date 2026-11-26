@@ -1,0 +1,15 @@
+# Generic leaks that should never be committed to this repo (extended regex, case-insensitive).
+# Personal terms go in the gitignored .private-denylist instead.
+
+# Absolute home directories
+[A-Z]:\\+Users\\+[a-z0-9._-]+
+/mnt/[a-z]/Users/[a-z0-9._-]+
+/home/[a-z0-9._-]+/
+/Users/[a-z0-9._-]+/
+# A WSL path that names a distro
+wsl(\.localhost|\$)\\+[a-z]+[a-z0-9._-]*\\
+wsl\.localhost/[a-z]
+# Google document / script IDs in URLs
+docs\.google\.com/(spreadsheets|document|presentation)/d/[A-Za-z0-9_-]{20,}
+script\.google\.com/.*/d/[A-Za-z0-9_-]{20,}
+drive\.google\.com/.*(id=|/d/)[A-Za-z0-9_-]{20,}

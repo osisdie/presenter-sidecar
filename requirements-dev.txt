@@ -1,0 +1,2 @@
+# Unit tests (any OS, no display needed)
+pytest>=8

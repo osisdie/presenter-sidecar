@@ -1,0 +1,107 @@
+{
+  "_comment": "Copy to config.json (start.ps1 does this on first run) and edit. Keys starting with _ are comments. Coordinates are physical pixels. Restart after changes; notes_rules reload live.",
+
+  "ui_lang": "en",
+
+  "_hotkeys": "Global hotkeys. Format: Ctrl/Alt/Shift/Win + key (F1-F24, A-Z, 0-9, PgUp, PgDn, Home, End, ...). Empty string disables one. If another program owns a key, the panel shows a warning: pick another here.",
+  "hotkeys": {
+    "pick": "F7",
+    "bring": "Shift+F7",
+    "freeze": "F8",
+    "blank": "F9",
+    "style": "F10",
+    "popups": "Ctrl+Alt+P",
+    "clip": "Ctrl+Alt+L",
+    "next": "Ctrl+Alt+PgDn",
+    "prev": "Ctrl+Alt+PgUp",
+    "quit": "Ctrl+Alt+Q"
+  },
+
+  "_displays": "Device names such as \\\\.\\DISPLAY1. Empty: source = primary display, target = first other display.",
+  "source_display": "",
+  "target_display": "",
+
+  "panel_width_ratio": 0.26,
+  "panel_width_px": 0,
+  "panel_topmost": true,
+  "reserve_work_area": false,
+  "clip_cursor_to_source": true,
+
+  "_source": "Window titles to auto-select at start, tried in order. Empty list: the foreground window at start; press the pick hotkey (F7) any time.",
+  "source_title_contains": [],
+  "never_source_classes": ["CASCADIA_HOSTING_WINDOW_CLASS", "ConsoleWindowClass", "mintty", "VirtualConsoleClass"],
+  "capture_backend": "auto",
+  "follow_popups": true,
+  "popup_min_size": [320, 240],
+
+  "fps": 25,
+  "smooth_scale": true,
+
+  "pointer_style": "ring",
+  "pointer_ring_radius": 46,
+  "pointer_ring_color": [255, 214, 0],
+  "pointer_ring_alpha": 90,
+  "pointer_ring_border_alpha": 220,
+  "pointer_arrow_scale": 2.2,
+  "spotlight_radius": 170,
+  "spotlight_dim_alpha": 170,
+  "ripple_left_color": [255, 59, 48],
+  "ripple_right_color": [0, 122, 255],
+  "ripple_ms": 550,
+  "ripple_max_radius": 70,
+
+  "blank_text": "Please wait",
+  "blank_subtext": "Back in a moment",
+  "blank_bg": [24, 28, 36],
+  "_font_path": "Optional .ttf/.ttc for the blank screen, e.g. C:\\Windows\\Fonts\\msjh.ttc for Chinese text. Empty: a system UI font.",
+  "font_path": "",
+
+  "panel_host": "127.0.0.1",
+  "panel_port": 8765,
+  "_panel_runtime": "windows = run panel_server.py with the Windows venv Python (default). wsl = run it inside WSL (wsl_distro empty = default distro).",
+  "panel_runtime": "windows",
+  "wsl_distro": "",
+  "_panel_browser": "Chrome or Edge used for the panel --app window. Empty: auto-detect.",
+  "panel_browser": "",
+
+  "_content": "content_root is the folder for notes, pacing and the AI helper. Relative paths are relative to this repo.",
+  "content_root": ".",
+  "notes_files": [
+    "examples/notes/talk-notes.md",
+    "examples/notes/talk-notes.zh-TW.md",
+    "examples/notes/checklist.md"
+  ],
+  "pacing_file": "examples/pacing.md",
+
+  "notes_auto_follow": true,
+  "_notes_follow_doc": "Notes file the auto-follow jumps in. Empty: the file you are viewing. A rule may also set its own \"doc\".",
+  "notes_follow_doc": "",
+  "_cdp_url": "Optional, enables url_contains rules (full URL including #hash). Needs the projected browser started with --remote-debugging-port=9222. Loopback only. Read SECURITY notes in README first. Empty: title rules only.",
+  "cdp_url": "",
+  "_notes_rules": "Checked top to bottom; first match wins. title_contains = tab title; url_contains = URL incl. #hash (needs cdp_url). section_heading_contains matches a ## heading (or the # title).",
+  "notes_rules": [
+    {"url_contains": "#qa", "section_heading_contains": "Q&A"},
+    {"title_contains": "Plant-care App · Q&A", "section_heading_contains": "Q&A"},
+    {"url_contains": "#intro", "section_heading_contains": "Intro"},
+    {"title_contains": "Plant-care App · Intro", "section_heading_contains": "Intro"},
+    {"url_contains": "localhost:3000", "section_heading_contains": "Demo C"},
+    {"title_contains": "Plant-care App", "section_heading_contains": "Demo C"},
+    {"url_contains": "docs.google.com/presentation", "section_heading_contains": "Intro"},
+    {"title_contains": "Google Slides", "section_heading_contains": "Intro"},
+    {"url_contains": "github.com", "section_heading_contains": "Demo A"},
+    {"title_contains": "GitHub", "section_heading_contains": "Demo A"},
+    {"url_contains": "docs.google.com/spreadsheets", "section_heading_contains": "Demo B"},
+    {"title_contains": "Google Sheets", "section_heading_contains": "Demo B"}
+  ],
+
+  "_ai_helper": "Optional read-only assistant backed by the Claude Code CLI (must be installed and signed in). Off by default. workdir is relative to content_root.",
+  "ai_helper": {
+    "enabled": false,
+    "claude_bin": "",
+    "model": "",
+    "timeout_sec": 180,
+    "extra_args": [],
+    "workdir": "examples",
+    "system_prompt": ""
+  }
+}

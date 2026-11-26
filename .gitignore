@@ -1,0 +1,39 @@
+# Local-only safety list (contains the private terms it guards against): never commit
+.private-denylist
+
+# Local config and runtime files
+config.json
+logs/
+*.log
+*.pid
+
+# Python
+.venv/
+.venv-*/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Secrets
+.env
+.env.*
+
+# Screenshots and captures (only curated files under docs/media/ are committed)
+screenshots/
+*.png
+*.jpg
+*.jpeg
+*.gif
+!docs/media/*.gif
+*.mp4
+!docs/media/*.png
+.playwright-mcp/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/

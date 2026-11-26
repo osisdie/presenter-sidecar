@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- mirror.py finds and docks this window by the title "Presenter Panel"; keep it in the title. -->
+<title>Presenter Panel</title>
+<link rel="stylesheet" href="panel.css">
+</head>
+<body>
+<header id="top">
+  <div class="row1">
+    <span id="clock">--:--:--</span>
+    <span id="mirror" class="pill" data-i18n-title="mirror.tip"></span>
+    <span class="spacer"></span>
+    <button id="fontDown" class="icon" data-i18n-title="font.down">A−</button>
+    <button id="fontUp" class="icon" data-i18n-title="font.up">A+</button>
+  </div>
+  <div id="srcline" class="srcline small"><span class="muted" data-i18n="src.label"></span><span id="srcTitle">—</span></div>
+  <div id="srcWarn" class="srcwarn small" hidden></div>
+  <div id="stages" class="stages"></div>
+  <div class="stageinfo">
+    <div class="stageline">
+      <b id="stageName"></b>
+      <span id="stageTime" class="mono">00:00 / 00:00</span>
+    </div>
+    <div class="bar"><div id="stageBar"></div></div>
+    <div class="stageline small">
+      <span id="stageDetail" class="muted"></span>
+    </div>
+    <div class="stageline small">
+      <span class="muted"><span data-i18n="timer.total"></span> <span id="classTime" class="mono">00:00</span></span>
+      <span class="spacer"></span>
+      <button id="btnStart" data-i18n="timer.start"></button>
+      <button id="btnNext" data-i18n="timer.next"></button>
+      <button id="btnResetTimer" class="ghost" data-i18n-title="timer.reset">↺</button>
+    </div>
+  </div>
+  <nav class="tabs">
+    <button data-tab="notes" class="active" data-i18n="tab.notes"></button>
+    <button data-tab="ai" id="tabAi" data-i18n="tab.ai"></button>
+  </nav>
+</header>
+
+<main>
+  <section id="tab-notes" class="tab active">
+    <div class="docbar">
+      <span id="docs"></span>
+      <span class="spacer"></span>
+      <button id="followBtn" data-i18n-title="follow.tip"></button>
+    </div>
+    <div class="secnav">
+      <button id="prev" data-i18n-title="nav.prev">◀</button>
+      <select id="secSel"></select>
+      <button id="next" data-i18n-title="nav.next">▶</button>
+    </div>
+    <div id="stageHint" class="hint" hidden></div>
+    <article id="note" class="md"></article>
+  </section>
+
+  <section id="tab-ai" class="tab">
+    <div id="chat" class="chat">
+      <div class="msg sys" id="aiIntro"></div>
+    </div>
+    <div id="progress" class="progress" hidden></div>
+    <form id="askForm" class="ask">
+      <textarea id="q" rows="3" data-i18n-placeholder="ai.placeholder"></textarea>
+      <div class="askbtns">
+        <label class="small muted"><input type="checkbox" id="withStage" checked> <span data-i18n="ai.withStage"></span></label>
+        <span class="spacer"></span>
+        <button type="button" id="btnNew" class="ghost" data-i18n="ai.new" data-i18n-title="ai.newTip"></button>
+        <button type="button" id="btnStop" class="ghost" data-i18n="ai.stop" hidden></button>
+        <button type="submit" id="btnSend" data-i18n="ai.send"></button>
+      </div>
+    </form>
+  </section>
+</main>
+<div id="toast" class="toast" hidden></div>
+<script src="panel.js"></script>
+</body>
+</html>

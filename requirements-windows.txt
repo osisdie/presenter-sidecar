@@ -1,0 +1,10 @@
+# Windows runtime for mirror.py (panel_server.py needs only the standard library).
+# Pinned to the versions this release was tested with on Windows 11 / Python 3.14.
+mss==10.2.0
+pygame-ce==2.5.8
+windows-capture==2.0.1
+# windows-capture imports these:
+opencv-python==5.1.0.95
+numpy==2.5.5; python_version >= "3.12"
+# numpy 2.5 needs Python 3.12+; on 3.11 use the last numpy series that supports it.
+numpy>=2.2,<2.3; python_version < "3.12"
