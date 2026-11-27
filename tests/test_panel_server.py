@@ -1,5 +1,6 @@
 import http.client
 import json
+import os
 import threading
 
 import pytest
@@ -103,3 +104,35 @@ def test_claude_command_is_read_only():
     assert "Read(**/.env)" in settings["permissions"]["deny"]
     assert cmd[cmd.index("--permission-mode") + 1] == "dontAsk"
     assert cmd[-2:] == ["--resume", "sid"] and "--model" in cmd and "--x" in cmd
+
+
+def _rewrite(path, cfg, bump):
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    st = path.stat()
+    os.utime(path, (st.st_atime, st.st_mtime + bump))  # coarse mtime clocks: force a visible change
+
+
+def test_notes_files_reload_without_restart(server, tmp_path):
+    app, port = server
+    cfg = json.loads(app.cfg_path.read_text(encoding="utf-8"))
+    (tmp_path / "extra.md").write_text("# Extra\n## One\n", encoding="utf-8")
+    cfg["notes_files"] = ["examples/notes/checklist.md", str(tmp_path / "extra.md")]
+    _rewrite(app.cfg_path, cfg, 5)
+    _, body = call(port, "GET", "/api/notes")
+    assert [d["name"] for d in body["docs"]] == ["checklist.md", "extra.md"]
+
+    cfg["notes_files"] = ["examples/notes/checklist.md"]
+    cfg["pacing_file"] = ""
+    _rewrite(app.cfg_path, cfg, 10)
+    _, body = call(port, "GET", "/api/notes")
+    assert [d["name"] for d in body["docs"]] == ["checklist.md"]
+    assert call(port, "GET", "/api/pacing")[1]["stages"] == []
+
+
+def test_broken_config_keeps_the_last_good_notes(server):
+    app, port = server
+    before = [d["name"] for d in call(port, "GET", "/api/notes")[1]["docs"]]
+    app.cfg_path.write_text("{ not json", encoding="utf-8")
+    st = app.cfg_path.stat()
+    os.utime(app.cfg_path, (st.st_atime, st.st_mtime + 5))
+    assert [d["name"] for d in call(port, "GET", "/api/notes")[1]["docs"]] == before

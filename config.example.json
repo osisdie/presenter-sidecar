@@ -1,5 +1,5 @@
 {
-  "_comment": "Copy to config.json (start.ps1 does this on first run) and edit. Keys starting with _ are comments. Coordinates are physical pixels. Restart after changes; notes_rules reload live.",
+  "_comment": "Copy to config.json (start.ps1 does this on first run) and edit. Keys starting with _ are comments. Coordinates are physical pixels. Restart after changes; notes_files, pacing_file and notes_rules reload live (reload the panel with F5).",
 
   "ui_lang": "en",
 

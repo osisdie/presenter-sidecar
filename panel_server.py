@@ -126,7 +126,7 @@ class App:
         self._live: dict[str, tuple[float, tuple[str, bool, str]]] = {}
         self._last_active: dict[str, str] = {}
 
-    # ---- config (hot reload: notes rules change without a restart)
+    # ---- config (hot reload: notes rules, notes files and pacing change without a restart)
     def _mtime(self) -> float:
         try:
             return self.cfg_path.stat().st_mtime
@@ -154,11 +154,12 @@ class App:
     def content_root(self) -> Path:
         return content_root(self.cfg)
 
-    # ---- notes
+    # ---- notes (the file list and pacing file reload live too: no restart after adding a notes file)
     def read_notes(self) -> list[dict]:
-        base = self.content_root()
+        cfg = self.live_cfg()
+        base = content_root(cfg)
         out = []
-        for rel in self.cfg.get("notes_files") or []:
+        for rel in cfg.get("notes_files") or []:
             p = resolve(base, rel)
             try:
                 out.append({"name": p.name, "path": rel, "text": p.read_text(encoding="utf-8")})
@@ -167,10 +168,11 @@ class App:
         return out
 
     def pacing(self) -> list[dict]:
-        if not self.cfg.get("pacing_file"):
+        cfg = self.live_cfg()
+        if not cfg.get("pacing_file"):
             return []
         try:
-            return parse_pacing(resolve(self.content_root(), self.cfg["pacing_file"]).read_text(encoding="utf-8"))
+            return parse_pacing(resolve(content_root(cfg), cfg["pacing_file"]).read_text(encoding="utf-8"))
         except OSError:
             return []
 
