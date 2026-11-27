@@ -16,13 +16,13 @@ presenter-sidecar mirrors a single window you choose to the projector, adds a la
 pointer, and gives you a private side panel on your laptop with speaker notes that follow the
 page you are showing, per-section timers and an optional read-only AI helper.
 
-| Projector: only the chosen window, letterboxed, with the pointer ring and a click ripple | Private panel: notes followed the projected tab |
+| Projector: only the chosen window, letterboxed, with the pointer ring and a click ripple | Private panel: notes followed the projected tab, step bar on step 2 |
 |---|---|
-| ![Projector output: the demo page with black side bars and a yellow pointer ring on a button](docs/media/projector.png) | <img src="docs/media/panel.png" width="300" alt="Side panel showing the Demo B notes, the section timer and an auto-follow toast"> |
+| ![Projector output: the demo page with black side bars and a yellow pointer ring on a button](docs/media/projector.png) | <img src="docs/media/panel.png" width="300" alt="Side panel showing the Demo C notes with the step bar on step 2, the section timer and an auto-follow toast"> |
 
 <details><summary>Auto-follow in motion (GIF)</summary>
 
-<img src="docs/media/auto-follow.gif" width="300" alt="The panel notes jump from Demo A to Demo B to Q&amp;A as the projected tab changes">
+<img src="docs/media/auto-follow.gif" width="300" alt="The panel notes jump from Demo A to Demo B to Demo C to Q&amp;A as the projected tab changes">
 
 </details>
 
@@ -157,6 +157,38 @@ A small Chrome/Edge window that only you see. Title: "Presenter Panel".
 **Notes**
 - Markdown files listed in `notes_files`. Each `##` heading is a section. Use ← / →, PgUp / PgDn,
   the drop-down, or Ctrl+Alt+PgDn / PgUp from anywhere. A− / A+ change the font size.
+- `notes_files` reloads live: add or remove a file in `config.json` and press F5 in the panel; no restart.
+- **Steps** (the second bar, under the section drop-down: ◀ `4. Recap (4/4)` ▶): inside a section,
+  every paragraph that is *only* a bold numbered title is a step:
+
+  ```markdown
+  **1. Add a plant**
+
+  - Name, species, pot size.
+
+  **2. Trigger a reminder**
+  ```
+
+  Sections without such lines use their `###` headings instead; sections with neither hide the bar.
+  - ↑ / ↓ or K / J (or the drop-down, ◀ ▶) move to the previous / next step. The step scrolls to the
+    top of the notes and gets a yellow bar on its left. Scrolling by hand moves the drop-down along.
+  - Changing section starts at step 1. Reloading the panel returns to the last section and step.
+  - In a section without steps, ↑ / ↓ scroll the notes as before.
+- **⌨ Keyboard shortcuts**: the ⌨ button next to A− / A+, or **?**, shows every key on one page.
+  The global list is built from your `hotkeys` setting (keys another program has taken are marked);
+  Esc, ? or ✕ closes it. ? is ignored while you type in a text box.
+
+  Panel keys (click the panel first):
+
+  | Key | Action |
+  |---|---|
+  | **← / →**, **PgUp / PgDn** | Previous / next section |
+  | **↑ / ↓**, **K / J** | Previous / next step (no steps: scroll) |
+  | **Home** | First section |
+  | **?** | Show / hide the shortcut list (**Esc** closes) |
+  | **F5** | Reload the panel (after editing notes or `config.json`) |
+
+  Ctrl, Alt and Meta combinations are left alone, so Ctrl+Alt+PgDn / PgUp still reach the global hotkeys.
 - **Auto-follow**: when the projected page changes, the notes jump to the matching section. Rules
   are in `notes_rules`, checked top to bottom, first match wins, reloaded live:
   - `title_contains` matches the tab title (a Chrome window title is the active tab's title);
@@ -210,8 +242,8 @@ Self-test pages for the mirror itself are in [`web/selftest/`](web/selftest/READ
 ## Configuration
 
 `config.example.json` is the only config in the repository; your `config.json` is gitignored.
-Keys starting with `_` are comments. Coordinates are physical pixels. Restart after changes
-(`notes_rules` reload live).
+Keys starting with `_` are comments. Coordinates are physical pixels. Restart after changes,
+except `notes_files`, `pacing_file` and `notes_rules`, which reload live (press F5 in the panel for files).
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -233,7 +265,7 @@ Keys starting with `_` are comments. Coordinates are physical pixels. Restart af
 | `panel_runtime` / `wsl_distro` | `windows` / `""` | Where the panel server runs |
 | `panel_browser` | `""` | Chrome/Edge path for the panel; empty = auto-detect |
 | `content_root` | `.` | Base folder for notes, pacing and the AI helper |
-| `notes_files` / `pacing_file` | examples | Notes (Markdown) and pacing file |
+| `notes_files` / `pacing_file` | examples | Notes (Markdown) and pacing file; reload live |
 | `notes_auto_follow` / `notes_follow_doc` | `true` / `""` | Auto-follow default; which notes file to follow in (empty = the one you are viewing) |
 | `cdp_url` | `""` | DevTools endpoint for URL rules; empty = title rules only |
 | `notes_rules` | examples | Auto-follow rules |
