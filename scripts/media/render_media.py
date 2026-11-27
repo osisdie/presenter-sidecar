@@ -181,6 +181,14 @@ def render_panel(browser, port: int, mirror: FakeMirror) -> None:
     page.wait_for_timeout(1800)
     seed_timer(page, "Demo B", 3.1, 22.6)
     page.wait_for_timeout(300)
+    gif_frames.append(grab(page))
+
+    # The live app → Demo C, whose numbered steps show the step bar; J moves to step 2.
+    mirror.title = "Plant-care App - Google Chrome"
+    page.wait_for_timeout(1800)
+    seed_timer(page, "Demo C", 4.6, 33.1)
+    page.keyboard.press("j")
+    page.wait_for_timeout(300)
     img = grab(page)
     img.save(OUT / "panel.png", optimize=True)
     gif_frames.append(img)
@@ -195,7 +203,7 @@ def render_panel(browser, port: int, mirror: FakeMirror) -> None:
 
     small = [f.resize((PANEL_W, PANEL_H), Image.LANCZOS).quantize(colors=96, method=Image.MEDIANCUT)
              for f in gif_frames]
-    small[0].save(OUT / "auto-follow.gif", save_all=True, append_images=small[1:], duration=[1800, 2600, 2600],
+    small[0].save(OUT / "auto-follow.gif", save_all=True, append_images=small[1:], duration=[1800, 2600, 2600, 2600],
                   loop=0, optimize=True)
 
 
