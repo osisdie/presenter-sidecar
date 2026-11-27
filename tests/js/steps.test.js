@@ -90,6 +90,8 @@ test("stepMove: ↓ first brings up a current step that is still below the view 
   assert.deepEqual(stepMove(1, g({ idx: 0, top: 1400, bottom: 1440 })), { go: 0 });
   assert.deepEqual(stepMove(1, g({ idx: 0, top: 480, bottom: 520 })), { go: 0 });      // title cut off at the bottom
   assert.deepEqual(stepMove(1, g({ idx: 0, top: 52, bottom: 90 })), { go: 1 });        // under the ## heading: seen
+  assert.deepEqual(stepMove(1, g({ idx: 0, top: 387, bottom: 722 })), { go: 0 });      // title shown, body cut off
+  assert.deepEqual(stepMove(1, g({ idx: 0, top: 4, bottom: 498 })), { go: 1 });        // brought up, fits
   assert.deepEqual(stepMove(1, g({ idx: 0, top: SPY_OFFSET, bottom: 40 })), { go: 1 }); // already up
   // at the bottom it can never come further up: move on instead of repeating forever
   assert.deepEqual(stepMove(1, g({ idx: 3, top: 480, bottom: 520, atEnd: true })), { go: 4 });
@@ -102,6 +104,14 @@ test("stepMove: ↓ on the last step reads on instead of jumping back to its tit
   assert.deepEqual(stepMove(1, g({ idx: 4, top: 4, bottom: 2000 })), { by: 400 });
   assert.deepEqual(stepMove(1, g({ idx: 4, top: -1500, bottom: 560 })), { by: 60 });
   assert.deepEqual(stepMove(1, g({ idx: 4, top: -1560, bottom: 500, atEnd: true })), { by: 400 });
+});
+
+test("stepMove: ↑ shows the current title again before moving back", () => {
+  // reading the tail after the last step: ↑ goes back to that step's title, not the one before
+  assert.deepEqual(stepMove(-1, g({ idx: 4, top: -900, bottom: -860, atEnd: true })), { go: 4 });
+  assert.deepEqual(stepMove(-1, g({ idx: 4, top: 4, bottom: 44 })), { go: 3 });         // title in view
+  assert.deepEqual(stepMove(-1, g({ idx: 0, top: -30, bottom: 30 })), { go: 0 });       // step 1 first ...
+  assert.deepEqual(stepMove(-1, g({ idx: 0, top: 4, bottom: 60 })), { home: true });    // ... then the section top
 });
 
 test("stepMove: a tall step is paged through in both directions", () => {

@@ -178,7 +178,8 @@ A small Chrome/Edge window that only you see. Title: "Presenter Panel".
   - A step taller than the notes view: ↓ first pages down through it (up to 80 % of the view, stopping at
     its end), then moves to the next step; ↑ pages back up to its title the same way.
   - On the last step, ↓ keeps scrolling to the end of the section. When you enter a section whose step 1
-    is further down, the first ↓ brings step 1 up.
+    is not fully on screen, the first ↓ brings step 1 up. ↑ from below a step's title (for example from
+    the end of the section) first goes back to that title.
   - Changing section starts at step 1. Reloading the panel returns to the last notes file, section and
     step (saved per notes path, so adding or reordering `notes_files` keeps your place).
   - In a section without steps, ↑ / ↓ scroll the notes as before.

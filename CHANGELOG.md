@@ -17,8 +17,8 @@ All notable changes to this project are documented here. The format follows
     a scroll-spy keeps the drop-down in sync when you scroll by hand (and ignores the scroll a step jump
     causes, so short steps are never skipped).
   - ↑ / ↓ and K / J move between steps; a step taller than the view is paged through first; on the last
-    step ↓ scrolls on to the section end; entering a section whose step 1 is below the fold, the first ↓
-    brings it up.
+    step ↓ scrolls on to the section end; entering a section whose step 1 is not fully on screen, the first
+    ↓ brings it up; ↑ returns to the current step's title first when it has scrolled out of view.
   - Changing section starts at step 1; the step is restored on reload (saved per notes path + section index).
   - Labels show the step title plus its position, e.g. `4. Recap (4/4)` (`（4/4）` in zh-TW).
 - ⌨ keyboard-shortcut overlay (button next to A− / A+, or `?`, also through AltGr; Esc or ✕ closes).

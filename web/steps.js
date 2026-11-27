@@ -48,16 +48,21 @@ function stepMove(d, g) {
   if (!g.n) return { by: d * 120 };                          // no steps in this section: scroll
   const view = g.viewBottom - g.viewTop, page = Math.round(view * 0.8), tall = g.bottom - g.top > view;
   if (d > 0) {
-    // The current step's title is not on screen yet (entering a section selects step 1 without
-    // scrolling, and it may be below the fold): bring it up before moving on. A visible step 1 just
-    // under the section heading counts as seen, so the first ↓ there still goes to step 2.
-    if (g.top > g.viewBottom - TITLE_PX && !g.atEnd) return { go: g.idx };
-    // A step taller than the view: page through it, stopping at its end.
+    // The current step has not been shown in full yet (entering a section selects step 1 without
+    // scrolling): bring it up before moving on when its title is below the fold ...
+    if (!g.atEnd && g.top > g.viewBottom - TITLE_PX) return { go: g.idx };
+    // ... a step taller than the view is paged through, stopping at its end ...
     if (tall && g.bottom > g.viewBottom + 2) return { by: Math.min(page, Math.ceil(g.bottom - g.viewBottom)) };
+    // ... and a step whose body is cut off at the bottom is brought up too. A step 1 shown in full
+    // under the section heading counts as seen, so the first ↓ there still goes to step 2.
+    if (!g.atEnd && g.bottom > g.viewBottom + 2 && g.top > g.viewTop + SPY_OFFSET + 2) return { go: g.idx };
     if (g.idx >= g.n - 1) return { by: page };                // past the last step: read on to the section end
     return { go: g.idx + 1 };
   }
   if (tall && g.top < g.viewTop - 2) return g.viewTop + 4 - g.top > page ? { by: -page } : { go: g.idx };
+  // The current title has scrolled above the view (e.g. reading the tail after the last step): show it
+  // again before moving back.
+  if (g.top < g.viewTop - 2) return { go: g.idx };
   if (g.idx <= 0) return { home: true };                      // up from step 1: back to the section top
   return { go: g.idx - 1 };
 }
