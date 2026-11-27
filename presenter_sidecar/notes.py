@@ -147,18 +147,41 @@ def section_headings(markdown: str) -> list[str]:
 # Same rule as planSteps() in web/steps.js (which works on the rendered HTML); the shared cases in
 # tests/fixtures/steps run against both. A step is a paragraph whose ONLY content is a bold,
 # numbered title such as ``**3. Open the sheet**``; when a section has none, its ``###`` headings
-# are used instead. ``3.`` needs a space before the title, so ``**2.5 million**`` is not a step;
-# the full-width ``3．`` may be followed directly (CJK text puts no space after it).
-STEP_NUMBER = re.compile(r"^\d+(?:\.\s+|．\s*)\S")
+# are used instead. ASCII digits only (``[0-9]``: Python's ``\d`` would also take ``１``). ``3.`` needs
+# a space before the title, so ``**2.5 million**`` is not a step; the full-width ``3．`` may be
+# followed directly (CJK text puts no space after it).
+STEP_NUMBER = re.compile(r"^[0-9]+(?:\.\s+|．\s*)\S")
 _BLOCK_START = re.compile(r"^(#|```|\s*>|\s*[-*+]\s|\s*\d+[.)]\s|\s*\|)")
 _LIST_ITEM = re.compile(r"^(\s*)([-*+]|\d+[.)])\s+")
 _TABLE_SEP = re.compile(r"^\s*\|?\s*:?-{2,}")
 
 
+_CODE = re.compile(r"`([^`]+)`")
+_STRONG = re.compile(r"\*\*(.+?)\*\*")
+_EM = re.compile(r"(^|[^*])\*([^*\s][^*]*?)\*")
+_LINK = re.compile(r"\[([^\]]+)\]\(([^)\s]+)\)")
+
+
+def _hide_code(s: str) -> tuple[str, list[str]]:
+    """Code spans first, as ``inline()`` in web/md.js: their content is never read as ``*`` markup."""
+    codes: list[str] = []
+
+    def keep(m):
+        codes.append(m.group(1))
+        return f"\0{len(codes) - 1}\0"
+    return _CODE.sub(keep, s), codes
+
+
+def _text(s: str, codes: list[str]) -> str:
+    """Markup → visible text, in the order ``inline()`` applies it (what ``textContent`` returns)."""
+    s = _EM.sub(r"\1\2", _STRONG.sub(r"\1", s))
+    s = _LINK.sub(r"\1", s)
+    return re.sub("\0(\\d+)\0", lambda m: codes[int(m.group(1))], s).strip()
+
+
 def _plain(s: str) -> str:
     """Inline Markdown → visible text (what ``textContent`` returns in the panel)."""
-    s = re.sub(r"\[([^\]]+)\]\(([^)\s]+)\)", r"\1", s)
-    return s.replace("**", "").replace("`", "").replace("*", "").strip()
+    return _text(*_hide_code(s))
 
 
 def _blocks(markdown: str):
@@ -212,10 +235,11 @@ def bold_step_title(paragraph: list[str]) -> str | None:
     """``["**4. Run it**"]`` → ``"4. Run it"``; ``None`` unless the paragraph is one numbered bold title."""
     if len(paragraph) != 1:
         return None
-    s = paragraph[0].strip()
-    if len(s) <= 4 or not (s.startswith("**") and s.endswith("**")) or s.count("**") != 2:
+    s, codes = _hide_code(paragraph[0].strip())
+    m = _STRONG.match(s)  # the panel's test: the paragraph's only child is ONE <strong>
+    if not m or m.end() != len(s):
         return None
-    title = _plain(s[2:-2])
+    title = _text(m.group(1), codes)
     return title if STEP_NUMBER.match(title) else None
 
 

@@ -112,7 +112,7 @@ function applyI18n() {
 }
 const key = (action) => (mirrorHotkeys || CONF.hotkeys || {})[action] || "?";  // registered keys win (see renderKeys)
 
-// esc / inline / md come from md.js; boldStepTitle / planSteps from steps.js (both loaded first).
+// esc / inline / md come from md.js; blockOf / planSteps / stepMove / SPY_OFFSET from steps.js (both loaded first).
 
 // ------------------------------------------------------------ font size
 let fs = LS.get("fs", 20);
@@ -183,7 +183,14 @@ $("#btnResetTimer").onclick = () => {
 setInterval(tick, 500);
 
 // ------------------------------------------------------------ notes
-let docs = [], docIdx = LS.get("doc", 0), sections = [], secIdx = 0, viewStage = -1;
+let docs = [], docIdx = 0, sections = [], secIdx = 0, viewStage = -1;
+// Open doc and section per doc are saved by notes path (as listed in notes_files), so adding or
+// reordering notes files keeps your place; 0.1.0 saved them by position ("doc", "sec.<n>").
+const secKey = () => `secs.${docs[docIdx]?.path}`;
+function savedDoc() {
+  const i = docs.findIndex((d) => d.path === LS.get("docPath", null));
+  return i >= 0 ? i : Math.min(LS.get("doc", 0), docs.length - 1);
+}
 function splitSections(text) {
   const lines = text.replace(/\r/g, "").split("\n"), secs = [];
   let cur = { title: "", lines: [] }, inFence = false;
@@ -212,16 +219,16 @@ function renderDocBar() {
   });
 }
 function openDoc(i, sec) {
-  docIdx = Math.max(0, Math.min(docs.length - 1, i)); LS.set("doc", docIdx);
+  docIdx = Math.max(0, Math.min(docs.length - 1, i)); LS.set("docPath", docs[docIdx].path);
   sections = splitSections(docs[docIdx].text);
   const sel = $("#secSel"); sel.innerHTML = "";
   sections.forEach((s, k) => { const o = document.createElement("option"); o.value = k; o.textContent = `${k + 1}/${sections.length}　${s.title}`; sel.appendChild(o); });
   // sec == null: first load or reload, so return to the last section AND step; otherwise start at step 1.
-  renderDocBar(); goSection(sec == null ? LS.get("sec." + docIdx, 0) : sec, sec == null);
+  renderDocBar(); goSection(sec == null ? LS.get(secKey(), LS.get("sec." + docIdx, 0)) : sec, sec == null);
 }
 function goSection(k, restoreStep = false) {
   if (!sections.length) return;
-  secIdx = Math.max(0, Math.min(sections.length - 1, k)); LS.set("sec." + docIdx, secIdx);
+  secIdx = Math.max(0, Math.min(sections.length - 1, k)); LS.set(secKey(), secIdx);
   $("#secSel").value = secIdx;
   const art = $("#note"); art.innerHTML = md(sections[secIdx].text); art.scrollTop = 0;
   buildSteps();
@@ -240,7 +247,7 @@ function goSection(k, restoreStep = false) {
   } else hint.hidden = true;
   renderStages();
 }
-$("#secSel").onchange = (e) => goSection(+e.target.value);
+$("#secSel").onchange = (e) => { goSection(+e.target.value); e.target.blur(); };  // blur: arrow keys page again
 $("#prev").onclick = () => goSection(secIdx - 1);
 $("#next").onclick = () => goSection(secIdx + 1);
 
@@ -249,16 +256,8 @@ $("#next").onclick = () => goSection(secIdx + 1);
 // tests/fixtures/steps). Each step (title + following blocks) is wrapped in <div class="step">
 // so it can be highlighted and scrolled to.
 let steps = [], stepIdx = 0, spyRaf = 0, spyMute = { until: 0, top: -1 };
-// Saved step per section: notes path (as listed in notes_files) + section index, like "sec.<docIdx>".
+// Saved step per section: notes path (as listed in notes_files) + section index, like secKey().
 const stepKey = () => `steps.${docs[docIdx]?.path}#${secIdx}`;
-try {  // 0.2.0 keys ("step.<file name>.<section title>") could collide: drop them once
-  Object.keys(localStorage).filter((k) => k.startsWith("presenter.step.")).forEach((k) => localStorage.removeItem(k));
-} catch {}
-const blockOf = (el) => ({
-  tag: el.tagName, text: el.textContent.trim(),
-  onlyStrong: el.children.length === 1 && el.firstElementChild.tagName === "STRONG" &&
-    el.textContent.trim() === el.firstElementChild.textContent.trim(),
-});
 function buildSteps() {
   const kids = [...$("#note").children];
   steps = planSteps(kids.map(blockOf)).map((p) => {
@@ -298,7 +297,7 @@ function spyStep() {  // manual scrolling: the drop-down follows the step neares
   spyRaf = 0;
   const art = $("#note");
   if (!steps.length || (performance.now() < spyMute.until && Math.abs(art.scrollTop - spyMute.top) < 2)) return;
-  const top = art.getBoundingClientRect().top, line = top + stickyOffset(art) + 8;
+  const top = art.getBoundingClientRect().top, line = top + stickyOffset(art) + SPY_OFFSET;
   let k = 0;
   for (let i = 0; i < steps.length; i++) { if (steps[i].el.getBoundingClientRect().top <= line) k = i; else break; }
   // At the bottom the last steps cannot reach the top: keep a later selected step while it is in view
@@ -312,22 +311,16 @@ $("#note").addEventListener("scroll", () => { if (!spyRaf) spyRaf = requestAnima
 $("#stepSel").onchange = (e) => { goStep(+e.target.value); e.target.blur(); };  // blur: ↑/↓ and J/K work right away
 $("#stepPrev").onclick = () => goStep(stepIdx - 1);
 $("#stepNext").onclick = () => goStep(stepIdx + 1);
-function stepBy(d) {
-  const art = $("#note");
-  if (!steps.length) { art.scrollBy(0, d * 120); return; }  // no steps in this section: scroll
-  // A step taller than the notes view: ↓ / ↑ page through it (up to 80 % of the view, stopping at
-  // the step's own edge) before moving to the next / previous step.
-  const box = art.getBoundingClientRect(), cur = steps[stepIdx].el.getBoundingClientRect();
-  const viewTop = box.top + stickyOffset(art), page = Math.round((box.bottom - viewTop) * 0.8);
-  if (cur.height > box.bottom - viewTop) {
-    if (d > 0 && cur.bottom > box.bottom + 2) { art.scrollBy(0, Math.min(page, Math.ceil(cur.bottom - box.bottom))); return; }
-    if (d < 0 && cur.top < viewTop - 2) {
-      if (viewTop + 4 - cur.top > page) art.scrollBy(0, -page); else goStep(stepIdx);
-      return;
-    }
-  }
-  if (d < 0 && stepIdx === 0) { art.scrollTop = 0; return; }  // up from step 1: back to the section top
-  goStep(stepIdx + d);
+function stepBy(d) {  // ↓ / ↑, J / K: the decision is stepMove() in steps.js
+  const art = $("#note"), box = art.getBoundingClientRect(), cur = steps[stepIdx]?.el.getBoundingClientRect();
+  const mv = stepMove(d, {
+    n: steps.length, idx: stepIdx, top: cur?.top ?? 0, bottom: cur?.bottom ?? 0,
+    viewTop: box.top + stickyOffset(art), viewBottom: box.bottom,
+    atEnd: art.scrollTop + art.clientHeight >= art.scrollHeight - 4,
+  });
+  if (mv.by) art.scrollBy(0, mv.by);
+  else if (mv.home) art.scrollTop = 0;
+  else if (mv.go != null) goStep(mv.go);
 }
 
 const typing = () => /TEXTAREA|INPUT|SELECT/.test(document.activeElement?.tagName || "") || document.activeElement?.isContentEditable;
@@ -543,7 +536,7 @@ $("#btnNew").onclick = async () => { await post("/api/reset"); chat.querySelecto
     stages = (await (await fetch("/api/pacing")).json()).stages || [];
     if (timer.cur >= stages.length) timer.cur = -1;
     docs = (await (await fetch("/api/notes")).json()).docs || [];
-    if (docs.length) openDoc(Math.min(docIdx, docs.length - 1), null);
+    if (docs.length) openDoc(savedDoc(), null);
   } catch (e) { $("#note").textContent = T("notes.cannotRead") + e; }
   renderStages(); tick(); pollState(); showTab(LS.get("tab", "notes"));
 })();

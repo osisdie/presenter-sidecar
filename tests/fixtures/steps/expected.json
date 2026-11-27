@@ -1,11 +1,44 @@
 {
-  "after-list.md": ["1. Step"],
-  "basic.md": ["1. Open the app", "2. Add a plant", "10．Wrap up"],
-  "bold-wins.md": ["1. Bold step"],
-  "decimal-not-step.md": ["3. Real step", "4．全形句點"],
-  "glued-paragraph.md": ["2. A step"],
-  "h3-fallback.md": ["First part", "Second"],
+  "after-list.md": [
+    "1. Step"
+  ],
+  "basic.md": [
+    "1. Open the app",
+    "2. Add a plant",
+    "10．Wrap up"
+  ],
+  "bold-wins.md": [
+    "1. Bold step"
+  ],
+  "decimal-not-step.md": [
+    "3. Real step",
+    "4．全形句點"
+  ],
+  "glued-paragraph.md": [
+    "2. A step"
+  ],
+  "h3-fallback.md": [
+    "First part",
+    "Second"
+  ],
+  "h3-markup.md": [
+    "3 * 4 rule",
+    "*x* y"
+  ],
   "ignored-blocks.md": [],
-  "short-title-only.md": ["1. One", "2. Two", "3. Three", "4. Four", "5. Five"],
-  "whole-paragraph.md": ["3. Run make & go"]
+  "inline-markup.md": [
+    "1. 5 * 3 = 15",
+    "2. Use ** here",
+    "3. a b c"
+  ],
+  "short-title-only.md": [
+    "1. One",
+    "2. Two",
+    "3. Three",
+    "4. Four",
+    "5. Five"
+  ],
+  "whole-paragraph.md": [
+    "3. Run make & go"
+  ]
 }
