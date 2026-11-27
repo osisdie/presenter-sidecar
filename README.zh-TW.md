@@ -152,12 +152,15 @@ py -m venv .venv
   ```
 
   沒有這種段落的節，改用 `###` 小標當步驟；兩種都沒有就不顯示這一排。
+  半形句點後面要空一格才算步驟（`**2.5 million**` 不算）；全形 `3．` 後面可以不空格。
   - 用 ↑／↓ 或 K／J（或下拉選單、◀ ▶）換上一步／下一步。選到的那一步會捲到講稿最上面，左邊出現黃色框線；
     自己捲動時，下拉選單也會跟著換。
+  - 某一步比講稿畫面還高時：↓ 先在這一步裡往下捲（每次最多 80% 畫面，捲到這一步結尾為止），再換下一步；↑ 也一樣先捲回這一步的標題。
   - 換節時從步驟 1 開始。面板重新載入時，回到上次那一節、那一步。
   - 沒有步驟的節，↑／↓ 照舊捲動講稿。
-- **⌨ 快捷鍵一覽**：按 A−／A+ 旁邊的 ⌨，或按 **?**，所有按鍵列在同一頁。全域熱鍵依你的 `hotkeys` 設定產生
-  （被其他程式佔用的會標出來）；按 Esc、? 或 ✕ 關閉。在輸入框打字時，? 不會觸發。
+- **⌨ 快捷鍵一覽**：按 A−／A+ 旁邊的 ⌨，或按 **?**，所有按鍵列在同一頁。全域熱鍵列的是 `mirror.py` 啟動時實際註冊的
+  （被其他程式佔用的會標出來）；mirror 未連線時改列 `hotkeys` 設定。mirror 只在啟動時讀 `hotkeys`，改熱鍵需重開 mirror。
+  按 Esc、? 或 ✕ 關閉，焦點回到打開前的位置。在輸入框打字時，? 不會觸發。
 
   面板按鍵（先點一下面板）：
 
@@ -303,6 +306,7 @@ Windows 必須能連到 WSL 的 `127.0.0.1`：WSL 預設的 localhost 轉送或 
 ```bash
 python -m pip install -r requirements-dev.txt
 python -m pytest -q                     # 單元測試，不需要螢幕（Linux／macOS／Windows）
+node --test tests/js/*.test.js          # 面板的步驟規則（web/steps.js）跑共用測資
 scripts/check/install-hooks.sh          # pre-commit：gitleaks＋私人字詞掃描
 scripts/check/scan-private.sh --all
 ```
@@ -312,7 +316,7 @@ scripts/check/scan-private.sh --all
 | `mirror.py` | Windows：選來源、擷取、縮放、投影視窗、游標、熱鍵、AppBar |
 | `panel_server.py` | 面板網頁伺服器與 AI 助手後端（只用標準函式庫） |
 | `presenter_sidecar/` | 純邏輯模組：幾何、視窗規則、講稿規則、熱鍵、設定、CDP、訊息 |
-| `web/` | 面板前端（`index.html`、`panel.js`、`panel.css`）與 `selftest/` 測試頁 |
+| `web/` | 面板前端（`index.html`、`panel.js`、`panel.css`；不碰 DOM 的 `md.js`、`steps.js` 可在 node 測試）與 `selftest/` 測試頁 |
 | `examples/` | 虛構的講稿（英文與繁體中文）、檢查清單、計時檔、範例網站 |
 | `start.ps1`／`stop.ps1`（`.bat`） | 啟動與關閉全部 |
 | `tests/` | 單元測試 |

@@ -170,13 +170,18 @@ A small Chrome/Edge window that only you see. Title: "Presenter Panel".
   ```
 
   Sections without such lines use their `###` headings instead; sections with neither hide the bar.
+  The number needs a space after an ASCII dot (`**2.5 million**` is not a step); `3．` (full-width) needs none.
   - ↑ / ↓ or K / J (or the drop-down, ◀ ▶) move to the previous / next step. The step scrolls to the
     top of the notes and gets a yellow bar on its left. Scrolling by hand moves the drop-down along.
+  - A step taller than the notes view: ↓ first pages down through it (up to 80 % of the view, stopping at
+    its end), then moves to the next step; ↑ pages back up to its title the same way.
   - Changing section starts at step 1. Reloading the panel returns to the last section and step.
   - In a section without steps, ↑ / ↓ scroll the notes as before.
 - **⌨ Keyboard shortcuts**: the ⌨ button next to A− / A+, or **?**, shows every key on one page.
-  The global list is built from your `hotkeys` setting (keys another program has taken are marked);
-  Esc, ? or ✕ closes it. ? is ignored while you type in a text box.
+  The global list shows the keys `mirror.py` registered when it started (keys another program has taken
+  are marked); while the mirror is not connected it shows your `hotkeys` setting instead. mirror.py reads
+  `hotkeys` only at start, so restart it after changing them. Esc, ? or ✕ closes the list and returns focus
+  to where it was. ? is ignored while you type in a text box.
 
   Panel keys (click the panel first):
 
@@ -265,7 +270,7 @@ except `notes_files`, `pacing_file` and `notes_rules`, which reload live (press 
 | `panel_runtime` / `wsl_distro` | `windows` / `""` | Where the panel server runs |
 | `panel_browser` | `""` | Chrome/Edge path for the panel; empty = auto-detect |
 | `content_root` | `.` | Base folder for notes, pacing and the AI helper |
-| `notes_files` / `pacing_file` | examples | Notes (Markdown) and pacing file; reload live |
+| `notes_files` / `pacing_file` | examples | Notes (Markdown) and pacing file; reload live. Paths are trusted as written (`config.json` is your own file): `..` and absolute paths are allowed |
 | `notes_auto_follow` / `notes_follow_doc` | `true` / `""` | Auto-follow default; which notes file to follow in (empty = the one you are viewing) |
 | `cdp_url` | `""` | DevTools endpoint for URL rules; empty = title rules only |
 | `notes_rules` | examples | Auto-follow rules |
@@ -341,6 +346,7 @@ only `python3` is needed.
 ```bash
 python -m pip install -r requirements-dev.txt
 python -m pytest -q                     # unit tests, no display needed (Linux/macOS/Windows)
+node --test tests/js/*.test.js          # panel step rule (web/steps.js) on the shared fixtures
 scripts/check/install-hooks.sh          # pre-commit: gitleaks + private-term scan
 scripts/check/scan-private.sh --all
 ```
@@ -350,7 +356,7 @@ scripts/check/scan-private.sh --all
 | `mirror.py` | Windows: source selection, capture, scaling, projector window, pointer, hotkeys, AppBar |
 | `panel_server.py` | Panel web server and AI helper backend (standard library only) |
 | `presenter_sidecar/` | Pure modules: geometry, window rules, notes rules, hotkeys, config, CDP, messages |
-| `web/` | Panel front end (`index.html`, `panel.js`, `panel.css`) and `selftest/` pages |
+| `web/` | Panel front end (`index.html`, `panel.js`, `panel.css`; DOM-free `md.js` and `steps.js`, tested under node) and `selftest/` pages |
 | `examples/` | Mock talk notes (English and 繁體中文), checklist, pacing, demo site |
 | `start.ps1` / `stop.ps1` (`.bat`) | Start and stop everything |
 | `tests/` | Unit tests |
