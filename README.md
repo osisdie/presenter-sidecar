@@ -171,11 +171,16 @@ A small Chrome/Edge window that only you see. Title: "Presenter Panel".
 
   Sections without such lines use their `###` headings instead; sections with neither hide the bar.
   The number needs a space after an ASCII dot (`**2.5 million**` is not a step); `3．` (full-width) needs none.
+  A step runs until the next step, heading, `---` rule or `>` quote: a quote after a step is left outside
+  it (handy for asides you do not read out).
   - ↑ / ↓ or K / J (or the drop-down, ◀ ▶) move to the previous / next step. The step scrolls to the
     top of the notes and gets a yellow bar on its left. Scrolling by hand moves the drop-down along.
   - A step taller than the notes view: ↓ first pages down through it (up to 80 % of the view, stopping at
     its end), then moves to the next step; ↑ pages back up to its title the same way.
-  - Changing section starts at step 1. Reloading the panel returns to the last section and step.
+  - On the last step, ↓ keeps scrolling to the end of the section. When you enter a section whose step 1
+    is further down, the first ↓ brings step 1 up.
+  - Changing section starts at step 1. Reloading the panel returns to the last notes file, section and
+    step (saved per notes path, so adding or reordering `notes_files` keeps your place).
   - In a section without steps, ↑ / ↓ scroll the notes as before.
 - **⌨ Keyboard shortcuts**: the ⌨ button next to A− / A+, or **?**, shows every key on one page.
   The global list shows the keys `mirror.py` registered when it started (keys another program has taken

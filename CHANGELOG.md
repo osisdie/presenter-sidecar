@@ -11,11 +11,14 @@ All notable changes to this project are documented here. The format follows
 - Panel step bar: a second bar under the section drop-down (◀ drop-down ▶) for the steps inside a section.
   - A step is a paragraph whose only content is a bold numbered title (`**3. Open the sheet**`);
     sections without one fall back to `###` headings, and the bar is hidden when there are none.
-    An ASCII dot needs a space after it, so `**2.5 million**` is not a step (`3．` needs none).
+    ASCII digits only, and an ASCII dot needs a space after it, so `**2.5 million**` is not a step
+    (`3．` needs none). A step runs until the next step, heading, `---` rule or `>` quote.
   - The selected step scrolls to the top of the notes (below any sticky header) and is highlighted;
     a scroll-spy keeps the drop-down in sync when you scroll by hand (and ignores the scroll a step jump
     causes, so short steps are never skipped).
-  - ↑ / ↓ and K / J move between steps; a step taller than the view is paged through first.
+  - ↑ / ↓ and K / J move between steps; a step taller than the view is paged through first; on the last
+    step ↓ scrolls on to the section end; entering a section whose step 1 is below the fold, the first ↓
+    brings it up.
   - Changing section starts at step 1; the step is restored on reload (saved per notes path + section index).
   - Labels show the step title plus its position, e.g. `4. Recap (4/4)` (`（4/4）` in zh-TW).
 - ⌨ keyboard-shortcut overlay (button next to A− / A+, or `?`, also through AltGr; Esc or ✕ closes).
@@ -35,6 +38,9 @@ All notable changes to this project are documented here. The format follows
   press F5 in the panel, no restart.
 - Panel keys ignore Ctrl, Alt and Meta combinations, so browser shortcuts and Ctrl+Alt+PgUp / PgDn pass through.
 - Panel keys are ignored while the shortcut overlay is open.
+- The open notes file and the section per file are saved by notes path instead of position, so adding or
+  reordering `notes_files` keeps your place (0.1.0 positions are read once as a fallback).
+- Choosing a section from the drop-down hands the keys back to the notes (← / → page again right away).
 
 ## [0.1.0] - 2026-11-27
 
