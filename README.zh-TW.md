@@ -17,11 +17,11 @@ presenter-sidecar 把你選定的「一個視窗」即時投到投影機，加�
 
 | 投影：只有選定的視窗，等比縮放加黑邊，加上游標光圈與點擊波紋 | 私人面板：講稿跟著投影的分頁切換 |
 |---|---|
-| ![投影畫面：範例網頁左右有黑邊，按鈕上有黃色游標光圈](docs/media/projector.png) | <img src="docs/media/panel.png" width="300" alt="側邊面板顯示 Demo B 講稿、段落計時和自動跟隨提示"> |
+| ![投影畫面：範例網頁左右有黑邊，按鈕上有黃色游標光圈](docs/media/projector.png) | <img src="docs/media/panel.png" width="300" alt="側邊面板顯示 Demo C 講稿、步驟列停在第 2 步、段落計時和自動跟隨提示"> |
 
 <details><summary>自動跟隨動畫（GIF）</summary>
 
-<img src="docs/media/auto-follow.gif" width="300" alt="投影的分頁換了，面板講稿從 Demo A 跳到 Demo B 再到 Q&amp;A">
+<img src="docs/media/auto-follow.gif" width="300" alt="投影的分頁換了，面板講稿從 Demo A 跳到 Demo B、Demo C 再到 Q&amp;A">
 
 </details>
 
@@ -139,6 +139,43 @@ py -m venv .venv
 **講稿**
 - 讀 `notes_files` 列出的 Markdown 檔，每個 `##` 標題是一節。用 ←／→、PgUp／PgDn、下拉選單，
   或在任何地方按 Ctrl+Alt+PgDn／PgUp 翻頁。A−／A+ 調字體大小。
+- `notes_files` 存檔即生效：在 `config.json` 加減講稿檔，回面板按 F5 就好，不用重新啟動。
+- **步驟導覽**（節選單下面第二排：◀ `4. 重點回顧（4/4）` ▶）：一節裡面，**整段只有一行粗體編號標題**
+  的段落就是一步：
+
+  ```markdown
+  **1. 新增一盆植物**
+
+  - 名字、品種、盆子大小。
+
+  **2. 觸發一次提醒**
+  ```
+
+  沒有這種段落的節，改用 `###` 小標當步驟；兩種都沒有就不顯示這一排。
+  半形句點後面要空一格才算步驟（`**2.5 million**` 不算）；全形 `3．` 後面可以不空格。
+  一步到下一步、標題、`---` 分隔線或 `>` 引言為止：步驟後面的引言不算在這一步裡（適合放不念出來的補充）。
+  - 用 ↑／↓ 或 K／J（或下拉選單、◀ ▶）換上一步／下一步。選到的那一步會捲到講稿最上面，左邊出現黃色框線；
+    自己捲動時，下拉選單也會跟著換。
+  - 某一步比講稿畫面還高時：↓ 先在這一步裡往下捲（每次最多 80% 畫面，捲到這一步結尾為止），再換下一步；↑ 也一樣先捲回這一步的標題。
+  - 在最後一步按 ↓，會繼續往下捲到這一節結尾。剛進到一節、步驟 1 沒有整個出現在畫面上時，第一次按 ↓ 先把步驟 1 捲上來。
+    標題已經捲到上面看不到時（例如在這一節結尾），按 ↑ 先回到這一步的標題。
+  - 換節時從步驟 1 開始。面板重新載入時，回到上次的講稿檔、那一節、那一步（依講稿路徑記住，`notes_files` 增加或調換順序也不會亂）。
+  - 沒有步驟的節，↑／↓ 照舊捲動講稿。
+- **⌨ 快捷鍵一覽**：按 A−／A+ 旁邊的 ⌨，或按 **?**，所有按鍵列在同一頁。全域熱鍵列的是 `mirror.py` 啟動時實際註冊的
+  （被其他程式佔用的會標出來）；mirror 未連線時改列 `hotkeys` 設定。mirror 只在啟動時讀 `hotkeys`，改熱鍵需重開 mirror。
+  按 Esc、? 或 ✕ 關閉，焦點回到打開前的位置。在輸入框打字時，? 不會觸發。
+
+  面板按鍵（先點一下面板）：
+
+  | 按鍵 | 動作 |
+  |---|---|
+  | **←／→**、**PgUp／PgDn** | 上一節／下一節 |
+  | **↑／↓**、**K／J** | 上一步／下一步（沒有步驟時：捲動） |
+  | **Home** | 回到第一節 |
+  | **?** | 開／關快捷鍵一覽（**Esc** 關閉） |
+  | **F5** | 重新載入面板（改了講稿或 `config.json` 後） |
+
+  Ctrl、Alt、Meta 組合鍵不會被面板攔下，所以 Ctrl+Alt+PgDn／PgUp 仍交給全域熱鍵。
 - **自動跟隨**：投影的頁面換了，講稿就跳到對應段落。規則在 `notes_rules`，由上往下比對、第一個符合的生效，存檔即生效：
   - `title_contains` 比對分頁標題（Chrome 的視窗標題就是目前分頁的標題）；
   - `url_contains` 比對完整網址，**含 `#錨點`**；需要 `cdp_url`（見下方）。
@@ -187,7 +224,7 @@ py -m venv .venv
 ## 設定
 
 repo 裡只有 `config.example.json`；你自己的 `config.json` 不進版控。以 `_` 開頭的鍵是註解。
-座標一律是實體像素。改完要重新啟動（`notes_rules` 例外，存檔即生效）。
+座標一律是實體像素。改完要重新啟動；`notes_files`、`pacing_file`、`notes_rules` 例外，存檔即生效（講稿檔清單要在面板按 F5）。
 
 | 鍵 | 預設 | 說明 |
 |---|---|---|
@@ -209,7 +246,7 @@ repo 裡只有 `config.example.json`；你自己的 `config.json` 不進版控�
 | `panel_runtime`／`wsl_distro` | `windows`／`""` | 面板伺服器在哪裡執行 |
 | `panel_browser` | `""` | 面板用的 Chrome／Edge 路徑；空白＝自動尋找 |
 | `content_root` | `.` | 講稿、計時檔與 AI 助手的根目錄 |
-| `notes_files`／`pacing_file` | 範例 | 講稿（Markdown）與計時檔 |
+| `notes_files`／`pacing_file` | 範例 | 講稿（Markdown）與計時檔；存檔即生效。路徑照寫的信任（`config.json` 是你自己的檔）：可以用 `..` 和絕對路徑 |
 | `notes_auto_follow`／`notes_follow_doc` | `true`／`""` | 自動跟隨預設值；要在哪份講稿裡跳（空白＝目前在看的那份） |
 | `cdp_url` | `""` | 網址規則用的 DevTools 位址；空白＝只用標題規則 |
 | `notes_rules` | 範例 | 自動跟隨規則 |
@@ -272,6 +309,7 @@ Windows 必須能連到 WSL 的 `127.0.0.1`：WSL 預設的 localhost 轉送或 
 ```bash
 python -m pip install -r requirements-dev.txt
 python -m pytest -q                     # 單元測試，不需要螢幕（Linux／macOS／Windows）
+node --test tests/js/*.test.js          # 面板的步驟規則（web/steps.js）跑共用測資
 scripts/check/install-hooks.sh          # pre-commit：gitleaks＋私人字詞掃描
 scripts/check/scan-private.sh --all
 ```
@@ -281,7 +319,7 @@ scripts/check/scan-private.sh --all
 | `mirror.py` | Windows：選來源、擷取、縮放、投影視窗、游標、熱鍵、AppBar |
 | `panel_server.py` | 面板網頁伺服器與 AI 助手後端（只用標準函式庫） |
 | `presenter_sidecar/` | 純邏輯模組：幾何、視窗規則、講稿規則、熱鍵、設定、CDP、訊息 |
-| `web/` | 面板前端（`index.html`、`panel.js`、`panel.css`）與 `selftest/` 測試頁 |
+| `web/` | 面板前端（`index.html`、`panel.js`、`panel.css`；不碰 DOM 的 `md.js`、`steps.js` 可在 node 測試）與 `selftest/` 測試頁 |
 | `examples/` | 虛構的講稿（英文與繁體中文）、檢查清單、計時檔、範例網站 |
 | `start.ps1`／`stop.ps1`（`.bat`） | 啟動與關閉全部 |
 | `tests/` | 單元測試 |

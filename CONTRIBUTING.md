@@ -22,6 +22,9 @@ window).
 - `panel_server.py`: standard library only. Do not add third-party dependencies to it.
 - `web/`: the panel (plain HTML/CSS/JS, no build step). Add UI strings to both `en` and `zh-TW`
   in `web/panel.js`, and server/mirror strings to `presenter_sidecar/i18n.py`.
+- `web/md.js` and `web/steps.js` must not touch the DOM: `node --test tests/js/*.test.js` runs them. The step rule
+  exists twice (`steps.js` and `presenter_sidecar/notes.py`); add a case to `tests/fixtures/steps/`
+  (Markdown + `expected.json`) and both test suites check it.
 
 ## Screenshots
 

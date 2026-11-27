@@ -37,9 +37,22 @@
 
 ## 4. Demo C — the live app
 
-1. Add a plant: name, species, pot size.
-2. Trigger a reminder with the "simulate dry soil" button.
-3. Show offline mode: turn Wi-Fi off, add a reading, turn it back on, watch it sync.
+Steps: the bold numbered lines below become the panel's step bar (↑ / ↓ or K / J).
+
+**1. Add a plant**
+
+- Name, species, pot size. Pick a fern so the reminder fires quickly.
+
+**2. Trigger a reminder**
+
+- Press "simulate dry soil" and wait for the notification.
+- Point at the moisture value dropping below 30 %.
+
+**3. Offline mode**
+
+- Turn Wi-Fi off, add a reading, turn it back on, watch it sync.
+
+**4. Recap**
 
 - Keep the pointer still while talking; click ripples show where you click.
 - Press F8 to freeze the projector before typing anything private.

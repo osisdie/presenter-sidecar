@@ -737,6 +737,8 @@ def main():
     ripple_buf = pygame.Surface((ripple_max * 2 + 8, ripple_max * 2 + 8), pygame.SRCALPHA)
 
     hot = Hotkeys(hotkey_table(CFG.get("hotkeys") or {}))
+    # Reported to the panel so its ⌨ overlay lists the keys registered now, not a later config.json edit.
+    hot_specs = {action: str(CFG["hotkeys"][action]) for _, _, action in hot.keys.values()}
     hot.start()
     hot.ready.wait(2)
     if hot.failed:
@@ -978,7 +980,7 @@ def main():
                                   "source_frame": geom[0] if geom else None,
                                   "scale": round(geom[1], 4) if geom else None,
                                   "offset": list(geom[2:4]) if geom else None, "panel": panel_rect,
-                                  "target": dst and dst["rect"], "hotkeys_failed": hot.failed,
+                                  "target": dst and dst["rect"], "hotkeys": hot_specs, "hotkeys_failed": hot.failed,
                                   "warning": warn, "notice": notice if tn < notice_until else ""}
                     (LOGS / "mirror.status.json").write_text(json.dumps(rep.status, ensure_ascii=False),
                                                              encoding="utf-8")

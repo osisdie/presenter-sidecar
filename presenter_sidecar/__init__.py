@@ -4,7 +4,7 @@ The modules in this package are pure Python (standard library only) so they can 
 unit-tested on any OS. The Windows-only parts live in ``mirror.py`` at the repo root.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 # Window titles that belong to the tool itself. They are never projected and the
 # panel window is found by this title.

@@ -23,4 +23,7 @@ Only the latest release receives fixes.
   are denied in the CLI's permission settings.
 - `cdp_url` must be a loopback address. A browser started with `--remote-debugging-port` can be
   fully controlled by any local process; only enable it for a browser profile used for presenting.
+- `notes_files`, `pacing_file` and `content_root` are trusted paths: `config.json` is the presenter's
+  own file, so `..` and absolute paths are allowed and the panel serves whatever they name (only those
+  files, only to `127.0.0.1`). Do not load a `config.json` you have not read.
 See the "Privacy and security" section of `README.md` for details.

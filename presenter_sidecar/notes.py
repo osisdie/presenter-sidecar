@@ -141,3 +141,119 @@ def section_headings(markdown: str) -> list[str]:
         elif ln.startswith("# ") and first is None and not out:
             first = ln[2:].strip()
     return ([first] if first else []) + out
+
+
+# ---------------------------------------------------------------- steps inside a section
+# Same rule as planSteps() in web/steps.js (which works on the rendered HTML); the shared cases in
+# tests/fixtures/steps run against both. A step is a paragraph whose ONLY content is a bold,
+# numbered title such as ``**3. Open the sheet**``; when a section has none, its ``###`` headings
+# are used instead. ASCII digits only (``[0-9]``: Python's ``\d`` would also take ``１``). ``3.`` needs
+# a space before the title, so ``**2.5 million**`` is not a step; the full-width ``3．`` may be
+# followed directly (CJK text puts no space after it).
+STEP_NUMBER = re.compile(r"^[0-9]+(?:\.\s+|．\s*)\S")
+_BLOCK_START = re.compile(r"^(#|```|\s*>|\s*[-*+]\s|\s*\d+[.)]\s|\s*\|)")
+_LIST_ITEM = re.compile(r"^(\s*)([-*+]|\d+[.)])\s+")
+_TABLE_SEP = re.compile(r"^\s*\|?\s*:?-{2,}")
+
+
+_CODE = re.compile(r"`([^`]+)`")
+_STRONG = re.compile(r"\*\*(.+?)\*\*")
+_EM = re.compile(r"(^|[^*])\*([^*\s][^*]*?)\*")
+_LINK = re.compile(r"\[([^\]]+)\]\(([^)\s]+)\)")
+
+
+def _hide_code(s: str) -> tuple[str, list[str]]:
+    """Code spans first, as ``inline()`` in web/md.js: their content is never read as ``*`` markup."""
+    codes: list[str] = []
+
+    def keep(m):
+        codes.append(m.group(1))
+        return f"\0{len(codes) - 1}\0"
+    return _CODE.sub(keep, s), codes
+
+
+def _text(s: str, codes: list[str]) -> str:
+    """Markup → visible text, in the order ``inline()`` applies it (what ``textContent`` returns)."""
+    s = _EM.sub(r"\1\2", _STRONG.sub(r"\1", s))
+    s = _LINK.sub(r"\1", s)
+    return re.sub("\0(\\d+)\0", lambda m: codes[int(m.group(1))], s).strip()
+
+
+def _plain(s: str) -> str:
+    """Inline Markdown → visible text (what ``textContent`` returns in the panel)."""
+    return _text(*_hide_code(s))
+
+
+def _blocks(markdown: str):
+    """Block structure as panel.js ``md()`` sees it: ``("h", level, text)``, ``("p", lines)``, ``("x",)``."""
+    lines = markdown.replace("\r", "").split("\n")
+    i, n = 0, len(lines)
+    while i < n:
+        ln = lines[i]
+        if ln.startswith("```"):
+            i += 1
+            while i < n and not lines[i].startswith("```"):
+                i += 1
+            i += 1
+            yield ("x",)
+            continue
+        if not ln.strip():
+            i += 1
+            continue
+        m = re.match(r"^(#{1,6})\s+(.*)", ln)
+        if m:
+            yield ("h", len(m.group(1)), m.group(2))
+            i += 1
+            continue
+        if re.match(r"^(-{3,}|\*{3,})\s*$", ln) or re.match(r"^\s*>", ln):
+            i += 1
+            while ln.lstrip().startswith(">") and i < n and re.match(r"^\s*>", lines[i]):
+                i += 1
+            yield ("x",)
+            continue
+        if re.match(r"^\s*\|", ln) and i + 1 < n and _TABLE_SEP.match(lines[i + 1]):
+            i += 2
+            while i < n and re.match(r"^\s*\|", lines[i]):
+                i += 1
+            yield ("x",)
+            continue
+        if _LIST_ITEM.match(ln):
+            i += 1
+            while i < n and re.match(r"^\s{2,}\S", lines[i]) and not _LIST_ITEM.match(lines[i]):
+                i += 1
+            yield ("x",)
+            continue
+        buf = [ln]
+        i += 1
+        while i < n and lines[i].strip() and not _BLOCK_START.match(lines[i]):
+            buf.append(lines[i])
+            i += 1
+        yield ("p", buf)
+
+
+def bold_step_title(paragraph: list[str]) -> str | None:
+    """``["**4. Run it**"]`` → ``"4. Run it"``; ``None`` unless the paragraph is one numbered bold title."""
+    if len(paragraph) != 1:
+        return None
+    s, codes = _hide_code(paragraph[0].strip())
+    m = _STRONG.match(s)  # the panel's test: the paragraph's only child is ONE <strong>
+    if not m or m.end() != len(s):
+        return None
+    title = _text(m.group(1), codes)
+    return title if STEP_NUMBER.match(title) else None
+
+
+def section_steps(markdown: str) -> list[str]:
+    """Step titles of one notes section: numbered bold paragraphs, else ``###`` headings."""
+    blocks = list(_blocks(markdown))
+    bold = [t for b in blocks if b[0] == "p" and (t := bold_step_title(b[1]))]
+    if bold:
+        return bold
+    return [_plain(b[2]) for b in blocks if b[0] == "h" and b[1] == 3]
+
+
+def step_label(title: str, index: int, total: int, lang: str = "en") -> str:
+    """Drop-down label, 1-based: ``"4. Run it (5/9)"`` (``zh-TW``: full-width brackets)."""
+    if lang == "zh-TW":
+        return f"{title}（{index}/{total}）"
+    return f"{title} ({index}/{total})"
