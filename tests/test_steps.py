@@ -1,9 +1,33 @@
-"""Step detection inside a notes section (mirrors buildSteps() in web/panel.js)."""
+"""Step detection inside a notes section (mirrors planSteps() in web/steps.js).
+
+tests/fixtures/steps holds the shared cases: this file runs them through the Python rule and
+tests/js/steps.test.js runs them through the panel's JavaScript (md.js + steps.js).
+"""
+import json
 from pathlib import Path
+
+import pytest
 
 from presenter_sidecar.notes import bold_step_title, section_steps, step_label
 
 ROOT = Path(__file__).resolve().parent.parent
+FIXTURES = ROOT / "tests" / "fixtures" / "steps"
+EXPECTED = json.loads((FIXTURES / "expected.json").read_text(encoding="utf-8"))
+
+
+def test_every_fixture_has_expected_titles():
+    assert sorted(p.name for p in FIXTURES.glob("*.md")) == sorted(EXPECTED)
+
+
+@pytest.mark.parametrize("name", sorted(EXPECTED))
+def test_shared_fixture(name):
+    assert section_steps((FIXTURES / name).read_text(encoding="utf-8")) == EXPECTED[name]
+
+
+def test_step_number_needs_a_space_after_an_ascii_dot():
+    assert bold_step_title(["**2.5 million**"]) is None
+    assert bold_step_title(["**1.Title**"]) is None
+    assert bold_step_title(["**10．全形**"]) == "10．全形"
 
 
 def test_bold_numbered_paragraphs_are_steps():

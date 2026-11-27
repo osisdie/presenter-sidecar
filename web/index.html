@@ -15,7 +15,7 @@
     <span class="spacer"></span>
     <button id="fontDown" class="icon" data-i18n-title="font.down">A−</button>
     <button id="fontUp" class="icon" data-i18n-title="font.up">A+</button>
-    <button id="keysBtn" class="icon" data-i18n-title="keys.tip">⌨</button>
+    <button id="keysBtn" class="icon" data-i18n-title="keys.tip" data-i18n-aria="keys.open" aria-haspopup="dialog">⌨</button>
   </div>
   <div id="srcline" class="srcline small"><span class="muted" data-i18n="src.label"></span><span id="srcTitle">—</span></div>
   <div id="srcWarn" class="srcwarn small" hidden></div>
@@ -82,13 +82,16 @@
   </section>
 </main>
 <div id="keysOverlay" class="keys" role="dialog" aria-modal="true" aria-labelledby="keysTitle" hidden>
-  <div class="keyshead"><b id="keysTitle" data-i18n="keys.title"></b><span class="spacer"></span><button id="keysClose" class="icon" data-i18n-title="keys.close">✕</button></div>
+  <div class="keyshead"><b id="keysTitle" data-i18n="keys.title"></b><span class="spacer"></span><button id="keysClose" class="icon" data-i18n-title="keys.close" data-i18n-aria="keys.closeShort">✕</button></div>
   <h3 data-i18n="keys.global"></h3>
+  <p id="keysNote" class="small muted"></p>
   <table id="keysGlobal"></table>
   <h3 data-i18n="keys.panel"></h3>
   <table id="keysPanel"></table>
 </div>
 <div id="toast" class="toast" hidden></div>
+<script src="md.js"></script>
+<script src="steps.js"></script>
 <script src="panel.js"></script>
 </body>
 </html>

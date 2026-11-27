@@ -144,10 +144,12 @@ def section_headings(markdown: str) -> list[str]:
 
 
 # ---------------------------------------------------------------- steps inside a section
-# Same rule as buildSteps() in web/panel.js (which works on the rendered HTML). A step is a
-# paragraph whose ONLY content is a bold, numbered title such as ``**3. Open the sheet**``;
-# when a section has none, its ``###`` headings are used instead.
-STEP_NUMBER = re.compile(r"^\d+[.．]\s*\S")
+# Same rule as planSteps() in web/steps.js (which works on the rendered HTML); the shared cases in
+# tests/fixtures/steps run against both. A step is a paragraph whose ONLY content is a bold,
+# numbered title such as ``**3. Open the sheet**``; when a section has none, its ``###`` headings
+# are used instead. ``3.`` needs a space before the title, so ``**2.5 million**`` is not a step;
+# the full-width ``3．`` may be followed directly (CJK text puts no space after it).
+STEP_NUMBER = re.compile(r"^\d+(?:\.\s+|．\s*)\S")
 _BLOCK_START = re.compile(r"^(#|```|\s*>|\s*[-*+]\s|\s*\d+[.)]\s|\s*\|)")
 _LIST_ITEM = re.compile(r"^(\s*)([-*+]|\d+[.)])\s+")
 _TABLE_SEP = re.compile(r"^\s*\|?\s*:?-{2,}")

@@ -136,3 +136,13 @@ def test_broken_config_keeps_the_last_good_notes(server):
     st = app.cfg_path.stat()
     os.utime(app.cfg_path, (st.st_atime, st.st_mtime + 5))
     assert [d["name"] for d in call(port, "GET", "/api/notes")[1]["docs"]] == before
+
+
+def test_state_passes_the_registered_hotkeys_through(server):
+    # The ⌨ overlay lists what mirror.py registered at its start, not a later config.json edit.
+    _, port = server
+    status = {"fps": 25, "hotkeys": {"pick": "F7", "freeze": "F9"}, "hotkeys_failed": ["freeze"]}
+    assert call(port, "POST", "/api/mirror", status, {"X-Panel": "1"})[0] == 200
+    _, body = call(port, "GET", "/api/state")
+    assert body["mirror"]["hotkeys"] == {"pick": "F7", "freeze": "F9"}
+    assert body["mirror"]["hotkeys_failed"] == ["freeze"]

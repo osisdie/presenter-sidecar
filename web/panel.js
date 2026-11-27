@@ -40,6 +40,9 @@ const I18N = {
     "keys.tip": "Keyboard shortcuts (?)", "keys.title": "⌨ Keyboard shortcuts", "keys.close": "Close (Esc or ?)",
     "keys.global": "Global (work in any window)", "keys.panel": "Panel (click the panel first)",
     "keys.failed": " ⚠ taken by another program: change it in config.json",
+    "keys.restart": "Registered by mirror.py at its start: after changing hotkeys in config.json, restart the mirror.",
+    "keys.fromConfig": "Mirror not connected: showing config.json. Changing hotkeys needs a mirror restart.",
+    "keys.open": "Keyboard shortcuts", "keys.closeShort": "Close",
     "hk.pick": "Project the current foreground window", "hk.bring": "Move the source window next to the panel",
     "hk.freeze": "Freeze / unfreeze the projector (before typing anything private)",
     "hk.blank": "Blank “Please wait” screen / back", "hk.style": "Pointer style: ring ↔ spotlight",
@@ -77,6 +80,9 @@ const I18N = {
     "keys.tip": "快捷鍵一覽（?）", "keys.title": "⌨ 快捷鍵一覽", "keys.close": "關閉（Esc 或 ?）",
     "keys.global": "全域（任何視窗都有效）", "keys.panel": "面板（先點一下面板）",
     "keys.failed": " ⚠ 被其他程式佔用：請在 config.json 改掉",
+    "keys.restart": "以下是 mirror 啟動時註冊的熱鍵；改熱鍵需重開 mirror。",
+    "keys.fromConfig": "mirror 未連線：顯示 config.json 的設定。改熱鍵需重開 mirror。",
+    "keys.open": "快捷鍵一覽", "keys.closeShort": "關閉",
     "hk.pick": "把目前前景視窗設為投影來源", "hk.bring": "把來源視窗搬回筆電螢幕、放在面板旁邊",
     "hk.freeze": "凍結／解凍投影（輸入私人資料前先按）",
     "hk.blank": "「請稍候」畫面／切回", "hk.style": "游標樣式：光圈 ↔ 聚光燈",
@@ -98,73 +104,15 @@ function applyI18n() {
   document.querySelectorAll("[data-i18n]").forEach((el) => (el.textContent = T(el.dataset.i18n)));
   document.querySelectorAll("[data-i18n-title]").forEach((el) => (el.title = T(el.dataset.i18nTitle)));
   document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => (el.placeholder = T(el.dataset.i18nPlaceholder)));
+  document.querySelectorAll("[data-i18n-aria]").forEach((el) => el.setAttribute("aria-label", T(el.dataset.i18nAria)));
   $("#aiIntro").innerHTML = CONF.ai_helper ? T("ai.intro") : T("ai.disabled");
   $("#askForm").hidden = !CONF.ai_helper;
   $("#tabAi").classList.toggle("off", !CONF.ai_helper);
   $("#mirror").textContent = T("mirror.offline");
 }
-const key = (action) => (CONF.hotkeys && CONF.hotkeys[action]) || "?";
+const key = (action) => (mirrorHotkeys || CONF.hotkeys || {})[action] || "?";  // registered keys win (see renderKeys)
 
-// ------------------------------------------------------------ mini Markdown
-function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"); }
-function inline(s) {
-  const codes = [];
-  s = esc(s).replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return "\u0000" + (codes.length - 1) + "\u0000"; });
-  s = s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-       .replace(/(^|[^*])\*([^*\s][^*]*?)\*/g, "$1<em>$2</em>")
-       .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, t, u) => /^https?:\/\//.test(u) ? `<a href="${u}" target="_blank" rel="noopener">${t}</a>` : `<span title="${u}"><u>${t}</u></span>`);
-  return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[+i]}</code>`);
-}
-function md(src) {
-  const lines = src.replace(/\r/g, "").split("\n");
-  let out = [], i = 0;
-  const listStack = [];
-  const closeLists = (depth = 0) => { while (listStack.length > depth) out.push(`</${listStack.pop()}>`); };
-  while (i < lines.length) {
-    let ln = lines[i];
-    if (/^```/.test(ln)) {
-      closeLists(); const buf = []; i++;
-      while (i < lines.length && !/^```/.test(lines[i])) buf.push(lines[i++]);
-      i++; out.push(`<pre><code>${esc(buf.join("\n"))}</code></pre>`); continue;
-    }
-    if (/^\s*$/.test(ln)) { closeLists(); i++; continue; }
-    let m;
-    if ((m = ln.match(/^(#{1,6})\s+(.*)/))) { closeLists(); out.push(`<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`); i++; continue; }
-    if (/^(-{3,}|\*{3,})\s*$/.test(ln)) { closeLists(); out.push("<hr>"); i++; continue; }
-    if (/^\s*>/.test(ln)) {
-      closeLists(); const buf = [];
-      while (i < lines.length && /^\s*>/.test(lines[i])) buf.push(lines[i++].replace(/^\s*>\s?/, ""));
-      out.push(`<blockquote>${md(buf.join("\n"))}</blockquote>`); continue;
-    }
-    if (/^\s*\|/.test(ln) && i + 1 < lines.length && /^\s*\|?\s*:?-{2,}/.test(lines[i + 1])) {
-      closeLists();
-      const row = (r) => r.trim().replace(/^\||\|$/g, "").split("|").map((c) => inline(c.trim()));
-      const head = row(ln); i += 2; const body = [];
-      while (i < lines.length && /^\s*\|/.test(lines[i])) body.push(row(lines[i++]));
-      out.push("<table><thead><tr>" + head.map((c) => `<th>${c}</th>`).join("") + "</tr></thead><tbody>" +
-        body.map((r) => "<tr>" + r.map((c) => `<td>${c}</td>`).join("") + "</tr>").join("") + "</tbody></table>");
-      continue;
-    }
-    if ((m = ln.match(/^(\s*)([-*+]|\d+[.)])\s+(.*)/))) {
-      const depth = Math.floor(m[1].replace(/\t/g, "  ").length / 2) + 1;
-      const tag = /\d/.test(m[2]) ? "ol" : "ul";
-      while (listStack.length < depth) { listStack.push(tag); out.push(`<${tag}>`); }
-      closeLists(depth);
-      let text = m[3], cls = "";
-      const t = text.match(/^\[( |x|X)\]\s+(.*)/);
-      if (t) { cls = ' class="task"'; text = (t[1] === " " ? "☐ " : "☑ ") + t[2]; }
-      i++;  // continuation lines (indented, not a new item)
-      while (i < lines.length && /^\s{2,}\S/.test(lines[i]) && !/^\s*([-*+]|\d+[.)])\s+/.test(lines[i])) text += " " + lines[i++].trim();
-      out.push(`<li${cls}>${inline(text)}</li>`); continue;
-    }
-    closeLists();
-    const buf = [ln]; i++;
-    while (i < lines.length && !/^\s*$/.test(lines[i]) && !/^(#|```|\s*>|\s*[-*+]\s|\s*\d+[.)]\s|\s*\|)/.test(lines[i])) buf.push(lines[i++]);
-    out.push(`<p>${buf.map(inline).join("<br>")}</p>`);
-  }
-  closeLists();
-  return out.join("\n");
-}
+// esc / inline / md come from md.js; boldStepTitle / planSteps from steps.js (both loaded first).
 
 // ------------------------------------------------------------ font size
 let fs = LS.get("fs", 20);
@@ -297,31 +245,27 @@ $("#prev").onclick = () => goSection(secIdx - 1);
 $("#next").onclick = () => goSection(secIdx + 1);
 
 // ------------------------------------------------------------ steps inside a section
-// Same rule as presenter_sidecar.notes.section_steps: a step is a paragraph whose only content is a
-// bold numbered title "**N. title**"; sections without any use their ### headings instead.
-// Each step (title + following blocks up to the next step, heading, rule or quote) is wrapped in
-// <div class="step"> so it can be highlighted and scrolled to.
-let steps = [], stepIdx = 0, spyRaf = 0;
-const stepKey = () => `step.${docs[docIdx]?.name}.${sections[secIdx]?.title}`;
-function boldStepTitle(el) {
-  if (el.tagName !== "P" || el.children.length !== 1 || el.firstElementChild.tagName !== "STRONG") return null;
-  if (el.textContent.trim() !== el.firstElementChild.textContent.trim()) return null;
-  const t = el.textContent.trim();
-  return /^\d+[.．]\s*\S/.test(t) ? t : null;  // keep the number as written in the notes
-}
+// The rule itself lives in steps.js (planSteps, shared with the Python mirror through
+// tests/fixtures/steps). Each step (title + following blocks) is wrapped in <div class="step">
+// so it can be highlighted and scrolled to.
+let steps = [], stepIdx = 0, spyRaf = 0, spyMute = { until: 0, top: -1 };
+// Saved step per section: notes path (as listed in notes_files) + section index, like "sec.<docIdx>".
+const stepKey = () => `steps.${docs[docIdx]?.path}#${secIdx}`;
+try {  // 0.2.0 keys ("step.<file name>.<section title>") could collide: drop them once
+  Object.keys(localStorage).filter((k) => k.startsWith("presenter.step.")).forEach((k) => localStorage.removeItem(k));
+} catch {}
+const blockOf = (el) => ({
+  tag: el.tagName, text: el.textContent.trim(),
+  onlyStrong: el.children.length === 1 && el.firstElementChild.tagName === "STRONG" &&
+    el.textContent.trim() === el.firstElementChild.textContent.trim(),
+});
 function buildSteps() {
-  const art = $("#note"), kids = [...art.children];
-  let heads = kids.filter((el) => boldStepTitle(el) != null), bold = true;
-  if (!heads.length) { heads = kids.filter((el) => el.tagName === "H3"); bold = false; }
-  const isHead = new Set(heads);
-  const ends = (el) => isHead.has(el) || el.tagName === "HR" ||
-    (bold ? /^H[1-6]$/.test(el.tagName) || el.tagName === "BLOCKQUOTE" : /^H[1-3]$/.test(el.tagName));
-  steps = heads.map((h) => {
+  const kids = [...$("#note").children];
+  steps = planSteps(kids.map(blockOf)).map((p) => {
     const box = document.createElement("div"); box.className = "step";
-    h.before(box);
-    let el = h;
-    do { const nx = el.nextElementSibling; box.appendChild(el); el = nx; } while (el && !ends(el));
-    return { el: box, title: bold ? boldStepTitle(h) : h.textContent.trim() };
+    kids[p.start].before(box);
+    for (let i = p.start; i < p.end; i++) box.appendChild(kids[i]);
+    return { el: box, title: p.title };
   });
   stepIdx = 0;
   const sel = $("#stepSel"); sel.innerHTML = "";
@@ -345,16 +289,21 @@ function goStep(k, scroll = true) {
   if (scroll) {
     const art = $("#note");
     art.scrollTop += steps[stepIdx].el.getBoundingClientRect().top - art.getBoundingClientRect().top - stickyOffset(art) - 4;
+    // The scroll event this causes must not let the spy re-pick a step (a short step's successor sits
+    // above the spy line). Muted only while the view is still where we put it: a hand scroll still counts.
+    spyMute = { until: performance.now() + 400, top: art.scrollTop };
   }
 }
 function spyStep() {  // manual scrolling: the drop-down follows the step nearest the top
   spyRaf = 0;
-  if (!steps.length) return;
-  const art = $("#note"), top = art.getBoundingClientRect().top, line = top + stickyOffset(art) + 48;
+  const art = $("#note");
+  if (!steps.length || (performance.now() < spyMute.until && Math.abs(art.scrollTop - spyMute.top) < 2)) return;
+  const top = art.getBoundingClientRect().top, line = top + stickyOffset(art) + 8;
   let k = 0;
   for (let i = 0; i < steps.length; i++) { if (steps[i].el.getBoundingClientRect().top <= line) k = i; else break; }
-  // At the bottom the last steps cannot reach the top: keep a selected step that is still in view.
-  const atEnd = art.scrollTop + art.clientHeight >= art.scrollHeight - 2;
+  // At the bottom the last steps cannot reach the top: keep a later selected step while it is in view
+  // (4 px slack: zoomed pages scroll in fractions and may stop just short of scrollHeight).
+  const atEnd = art.scrollTop + art.clientHeight >= art.scrollHeight - 4;
   const cur = steps[stepIdx].el.getBoundingClientRect();
   if (atEnd && k < stepIdx && cur.top < top + art.clientHeight && cur.bottom > top) return;
   if (k !== stepIdx) goStep(k, false);
@@ -364,8 +313,20 @@ $("#stepSel").onchange = (e) => { goStep(+e.target.value); e.target.blur(); };  
 $("#stepPrev").onclick = () => goStep(stepIdx - 1);
 $("#stepNext").onclick = () => goStep(stepIdx + 1);
 function stepBy(d) {
-  if (!steps.length) { $("#note").scrollBy(0, d * 120); return; }  // no steps in this section: scroll
-  if (d < 0 && stepIdx === 0) { $("#note").scrollTop = 0; return; } // up from step 1: back to the section top
+  const art = $("#note");
+  if (!steps.length) { art.scrollBy(0, d * 120); return; }  // no steps in this section: scroll
+  // A step taller than the notes view: ↓ / ↑ page through it (up to 80 % of the view, stopping at
+  // the step's own edge) before moving to the next / previous step.
+  const box = art.getBoundingClientRect(), cur = steps[stepIdx].el.getBoundingClientRect();
+  const viewTop = box.top + stickyOffset(art), page = Math.round((box.bottom - viewTop) * 0.8);
+  if (cur.height > box.bottom - viewTop) {
+    if (d > 0 && cur.bottom > box.bottom + 2) { art.scrollBy(0, Math.min(page, Math.ceil(cur.bottom - box.bottom))); return; }
+    if (d < 0 && cur.top < viewTop - 2) {
+      if (viewTop + 4 - cur.top > page) art.scrollBy(0, -page); else goStep(stepIdx);
+      return;
+    }
+  }
+  if (d < 0 && stepIdx === 0) { art.scrollTop = 0; return; }  // up from step 1: back to the section top
   goStep(stepIdx + d);
 }
 
@@ -382,13 +343,15 @@ document.addEventListener("keydown", (e) => {
 });
 
 // ------------------------------------------------------------ ⌨ keyboard shortcuts overlay
-// Global hotkeys come from the configured `hotkeys` map (empty = disabled), so the list always
-// matches config.json; keys mirror.py could not register are flagged.
-let hotkeysFailed = [];
+// Global hotkeys: what mirror.py actually registered at its start (status `hotkeys`, keys another
+// program holds flagged from `hotkeys_failed`). mirror.py reads `hotkeys` only when it starts, so
+// config.json (/api/config) is shown only while the mirror is not connected.
+let hotkeysFailed = [], mirrorHotkeys = null;
 const kbds = (spec) => String(spec).split("+").map((k) => `<kbd>${esc(k.trim())}</kbd>`).join("+");
 const keyRow = (keysHtml, desc, cls = "") => `<tr${cls ? ` class="${cls}"` : ""}><td>${keysHtml}</td><td>${desc}</td></tr>`;
 function renderKeys() {
-  const hk = CONF.hotkeys || {};
+  const hk = mirrorHotkeys || CONF.hotkeys || {};
+  $("#keysNote").textContent = T(mirrorHotkeys ? "keys.restart" : "keys.fromConfig");
   $("#keysGlobal").innerHTML = Object.entries(hk).filter(([, spec]) => spec).map(([action, spec]) => {
     const failed = hotkeysFailed.includes(action);
     const label = T("hk." + action) === "hk." + action ? action : T("hk." + action);
@@ -404,18 +367,38 @@ function renderKeys() {
     keyRow(kbds("F5"), esc(T("pk.reload"))),
   ].join("");
 }
+// Modal: the page behind is `inert` while it is open, Tab / Shift+Tab cycle inside it, and closing
+// returns focus to whatever had it before (the ⌨ button, a notes link, or nothing when opened with ?).
+let keysReturn = null;
+const keysFocusables = () => [...$("#keysOverlay").querySelectorAll("button, a[href], [tabindex]:not([tabindex='-1'])")];
 function toggleKeys(show) {
   const o = $("#keysOverlay"), open = show === undefined ? o.hidden : show;
   if (open === !o.hidden) return;
+  if (open) keysReturn = document.activeElement;
   o.hidden = !open;
-  (open ? $("#keysClose") : $("#keysBtn")).focus();
+  document.querySelectorAll("body > header, body > main").forEach((el) => (el.inert = open));
+  if (open) { $("#keysClose").focus(); return; }
+  const back = keysReturn; keysReturn = null;
+  if (back && back !== document.body && back.isConnected) back.focus();
+  else document.activeElement?.blur();
 }
 $("#keysBtn").onclick = () => toggleKeys();
 $("#keysClose").onclick = () => toggleKeys(false);
 document.addEventListener("keydown", (e) => {
-  if (typing() || e.ctrlKey || e.altKey || e.metaKey) return;
-  if (e.key === "?") { toggleKeys(); e.preventDefault(); e.stopImmediatePropagation(); }
-  else if (e.key === "Escape" && !$("#keysOverlay").hidden) { toggleKeys(false); e.preventDefault(); e.stopImmediatePropagation(); }
+  const open = !$("#keysOverlay").hidden;
+  if (open && e.key === "Tab") {  // focus trap
+    const f = keysFocusables(), i = f.indexOf(document.activeElement);
+    if (f.length) { f[(i + (e.shiftKey ? -1 : 1) + f.length) % f.length].focus(); e.preventDefault(); }
+    return;
+  }
+  if (typing()) return;
+  // "?" alone (Shift is part of typing it), or via AltGr, which browsers on Windows report as Ctrl+Alt.
+  if (e.key === "?" && !e.metaKey && e.ctrlKey === e.altKey) {
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (!e.repeat) toggleKeys();
+  } else if (e.key === "Escape" && open && !(e.ctrlKey || e.altKey || e.metaKey)) {
+    toggleKeys(false); e.preventDefault(); e.stopImmediatePropagation();
+  }
 }, true);
 
 // ------------------------------------------------------------ notes auto-follow
@@ -477,7 +460,10 @@ async function pollState() {
     $("#srcTitle").classList.toggle("popup", !!m.following_popup);
     const warn = $("#srcWarn");
     const failedNow = stale ? [] : (m.hotkeys_failed || []);
-    if (failedNow.join() !== hotkeysFailed.join()) { hotkeysFailed = failedNow; renderKeys(); }
+    const hkNow = !stale && m.hotkeys && typeof m.hotkeys === "object" ? m.hotkeys : null;  // older mirrors: none
+    if (failedNow.join() !== hotkeysFailed.join() || JSON.stringify(hkNow) !== JSON.stringify(mirrorHotkeys)) {
+      hotkeysFailed = failedNow; mirrorHotkeys = hkNow; renderKeys();
+    }
     const failed = failedNow.length ? T("hotkeys.failed", { k: failedNow.join(", ") }) : "";
     const w = stale ? "" : (m.warning || failed || m.notice || "");  // warnings win over notices
     warn.hidden = !w; warn.textContent = w;
