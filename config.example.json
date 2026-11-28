@@ -12,6 +12,7 @@
     "style": "F10",
     "popups": "Ctrl+Alt+P",
     "clip": "Ctrl+Alt+L",
+    "region": "Ctrl+Alt+R",
     "next": "Ctrl+Alt+PgDn",
     "prev": "Ctrl+Alt+PgUp",
     "quit": "Ctrl+Alt+Q"
@@ -33,6 +34,14 @@
   "capture_backend": "auto",
   "follow_popups": true,
   "popup_min_size": [320, 240],
+
+  "_menu_overlay": "Right-click menus, Win11 context menus, tray menus and many drop-downs are separate windows that window capture misses. menu_overlay pastes them (screen copy) over the projected window, cut to its edges. Any process counts; the panel's own menus never. A popup class that is still missing is logged once in logs/mirror.log ('popup class not pasted'): add it to menu_overlay_classes. menu_overlay_heuristic also pastes unknown small captionless tool/topmost popups (off: they may be other apps' floating windows).",
+  "menu_overlay": true,
+  "menu_overlay_classes": ["#32768", "Chrome_WidgetWin_2", "Xaml_WindowedPopupClass", "Microsoft.UI.Content.PopupWindowSiteBridge", "DropDown", "ComboLBox", "tooltips_class32", "MozillaDropShadowWindowClass", "Net UI Tool Window"],
+  "menu_overlay_heuristic": false,
+
+  "_region_mode": "Region mode (hotkey 'region', default Ctrl+Alt+R) projects the source window's screen rectangle instead of the window itself: menus, dialogs, file pickers and anything else on top of it are shown too. Anything that pops up in that rectangle is projected: press F8 (freeze) before private actions. region_mode: true starts in it.",
+  "region_mode": false,
 
   "fps": 25,
   "smooth_scale": true,

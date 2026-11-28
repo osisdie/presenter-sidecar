@@ -19,7 +19,7 @@ window).
 ## Code layout
 
 - `presenter_sidecar/`: pure, standard-library modules (geometry, window rules, notes rules,
-  profiles, hotkey parsing, config, CDP, preview). Put logic here so it can be unit-tested.
+  profiles, hotkey parsing, config, CDP, preview, menu overlay). Put logic here so it can be unit-tested.
 - `mirror.py`: Win32 / pygame glue only.
 - `panel_server.py`: standard library only. Do not add third-party dependencies to it.
 - `web/`: the panel (plain HTML/CSS/JS, no build step). Add UI strings to both `en` and `zh-TW`

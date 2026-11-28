@@ -150,6 +150,19 @@ def test_state_passes_the_registered_hotkeys_through(server):
     assert body["mirror"]["hotkeys_failed"] == ["freeze"]
 
 
+def test_state_passes_the_capture_mode_and_menu_overlay_through(server):
+    _, port = server
+    status = {"fps": 25, "capture_mode": "region", "menu_overlay": False, "menus": 0}
+    assert call(port, "POST", "/api/mirror", status, {"X-Panel": "1"})[0] == 200
+    _, body = call(port, "GET", "/api/state")
+    assert body["mirror"]["capture_mode"] == "region" and body["mirror"]["menu_overlay"] is False
+
+
+def test_config_lists_the_region_hotkey(server):
+    _, port = server
+    assert call(port, "GET", "/api/config")[1]["hotkeys"]["region"] == "Ctrl+Alt+R"
+
+
 # ---------------------------------------------------------------- projector preview
 @pytest.fixture()
 def preview_server(tmp_path):
