@@ -7,6 +7,7 @@ import pytest
 
 import panel_server
 from presenter_sidecar.config import ROOT
+from presenter_sidecar.preview import PREVIEW_FILE
 
 
 @pytest.fixture()
@@ -146,3 +147,83 @@ def test_state_passes_the_registered_hotkeys_through(server):
     _, body = call(port, "GET", "/api/state")
     assert body["mirror"]["hotkeys"] == {"pick": "F7", "freeze": "F9"}
     assert body["mirror"]["hotkeys_failed"] == ["freeze"]
+
+
+# ---------------------------------------------------------------- projector preview
+@pytest.fixture()
+def preview_server(tmp_path):
+    cfg = json.loads((ROOT / "config.example.json").read_text(encoding="utf-8"))
+    cfg["content_root"] = str(ROOT)
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps(cfg), encoding="utf-8")
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    app = panel_server.App(p, logs=logs)
+    srv = panel_server.make_server(app, "127.0.0.1", 0)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    yield app, srv.server_address[1], logs / PREVIEW_FILE
+    srv.shutdown()
+    srv.server_close()
+
+
+def raw_get(port, path, host=None):
+    c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    c.request("GET", path, headers={"Host": host or f"127.0.0.1:{port}"})
+    r = c.getresponse()
+    out = r.status, dict(r.getheaders()), r.read()
+    c.close()
+    return out
+
+
+def test_preview_missing_is_404_and_not_cached(preview_server):
+    _, port, _ = preview_server
+    st, headers, body = raw_get(port, "/api/preview")
+    assert st == 404 and headers["Cache-Control"] == "no-store" and json.loads(body)["error"]
+    _, state = call(port, "GET", "/api/state")
+    assert state["preview"] == {"available": False, "enabled": None, "age": None}
+
+
+def test_preview_is_served_uncached_and_same_origin_only(preview_server):
+    _, port, f = preview_server
+    f.write_bytes(b"\xff\xd8fake-jpeg\xff\xd9")
+    st, headers, body = raw_get(port, "/api/preview?t=123")  # cache-busting query is ignored
+    assert st == 200 and body == b"\xff\xd8fake-jpeg\xff\xd9"
+    assert headers["Content-Type"] == "image/jpeg" and headers["Cache-Control"] == "no-store"
+    assert headers["Cross-Origin-Resource-Policy"] == "same-origin"
+    assert headers["X-Content-Type-Options"] == "nosniff"
+
+
+def test_preview_has_the_same_host_check(preview_server):
+    _, port, f = preview_server
+    f.write_bytes(b"x")
+    assert raw_get(port, "/api/preview", host="evil.example:80")[0] == 403
+    assert raw_get(port, "/api/preview", host=f"localhost:{port}")[0] == 200
+
+
+def test_preview_age_comes_from_the_mirror_not_the_file_clock(preview_server):
+    app, port, f = preview_server
+    f.write_bytes(b"x")
+    os.utime(f, (1, 1))  # a file mtime far in the past (or a skewed WSL clock) does not matter
+    call(port, "POST", "/api/mirror", {"preview": {"enabled": True, "age": 1.5, "seq": 3}}, {"X-Panel": "1"})
+    _, state = call(port, "GET", "/api/state")
+    pv = state["preview"]
+    assert pv["available"] is True and pv["enabled"] is True and 1.5 <= pv["age"] < 3
+
+
+def test_preview_disabled_and_disconnected_mirror(preview_server):
+    app, port, f = preview_server
+    call(port, "POST", "/api/mirror", {"preview": {"enabled": False, "age": None, "seq": 0}}, {"X-Panel": "1"})
+    assert call(port, "GET", "/api/state")[1]["preview"] == {"available": False, "enabled": False, "age": None}
+    # Mirror gone (no status for > 4 s): the last file's mtime gives the age, enabled is unknown.
+    f.write_bytes(b"x")
+    os.utime(f, (os.path.getmtime(f) - 30,) * 2)
+    with app.lock:
+        app.mirror_ts -= 60
+    pv = call(port, "GET", "/api/state")[1]["preview"]
+    assert pv["available"] is True and pv["enabled"] is None and 29 <= pv["age"] < 40
+
+
+def test_preview_from_an_older_mirror_without_the_field(preview_server):
+    _, port, _ = preview_server
+    call(port, "POST", "/api/mirror", {"fps": 25}, {"X-Panel": "1"})
+    assert call(port, "GET", "/api/state")[1]["preview"] == {"available": False, "enabled": None, "age": None}

@@ -51,6 +51,11 @@ const I18N = {
     "hk.quit": "Quit the mirror (the panel stays open)",
     "pk.section": "Previous / next section", "pk.step": "Previous / next step (no steps: scroll)",
     "pk.home": "First section", "pk.keys": "Show / hide this list", "pk.reload": "Reload the panel (after editing notes or config)",
+    "fold.preview": "Projector view", "fold.source": "Source", "fold.timer": "Timer", "fold.nav": "Notes & sections",
+    "fold.chat": "Conversation", "preview.alt": "What the audience sees on the projector now",
+    "preview.ageS": "{n} s ago", "preview.ageM": "{n} min ago", "preview.offline": "Mirror not connected",
+    "preview.off": "Preview off", "preview.none": "No image yet",
+    "preview.old": "Not updated for over {n} s", "preview.frozen": "Frozen", "preview.blank": "Blank",
   },
   "zh-TW": {
     "mirror.tip": "投影狀態（mirror.py 回報）", "font.down": "字小一點", "font.up": "字大一點",
@@ -91,6 +96,11 @@ const I18N = {
     "hk.quit": "結束投影（面板留著）",
     "pk.section": "上一節／下一節", "pk.step": "這一節的上一步／下一步（沒有步驟時：捲動）",
     "pk.home": "回到第一節", "pk.keys": "開／關這張快捷鍵表", "pk.reload": "重新載入面板（改了講稿或設定後）",
+    "fold.preview": "投影畫面", "fold.source": "投影來源", "fold.timer": "計時", "fold.nav": "講稿與章節",
+    "fold.chat": "對話", "preview.alt": "觀眾現在在投影上看到的畫面",
+    "preview.ageS": "{n} 秒前", "preview.ageM": "{n} 分鐘前", "preview.offline": "mirror 未連線",
+    "preview.off": "預覽已關閉", "preview.none": "還沒有畫面",
+    "preview.old": "超過 {n} 秒沒有更新", "preview.frozen": "凍結", "preview.blank": "請稍候",
   },
 };
 let LANG = "en", CONF = { hotkeys: {}, ai_helper: false };
@@ -105,6 +115,7 @@ function applyI18n() {
   document.querySelectorAll("[data-i18n-title]").forEach((el) => (el.title = T(el.dataset.i18nTitle)));
   document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => (el.placeholder = T(el.dataset.i18nPlaceholder)));
   document.querySelectorAll("[data-i18n-aria]").forEach((el) => el.setAttribute("aria-label", T(el.dataset.i18nAria)));
+  document.querySelectorAll("[data-i18n-alt]").forEach((el) => (el.alt = T(el.dataset.i18nAlt)));
   $("#aiIntro").innerHTML = CONF.ai_helper ? T("ai.intro") : T("ai.disabled");
   $("#askForm").hidden = !CONF.ai_helper;
   $("#tabAi").classList.toggle("off", !CONF.ai_helper);
@@ -112,7 +123,32 @@ function applyI18n() {
 }
 const key = (action) => (mirrorHotkeys || CONF.hotkeys || {})[action] || "?";  // registered keys win (see renderKeys)
 
-// esc / inline / md come from md.js; blockOf / planSteps / stepMove / SPY_OFFSET from steps.js (both loaded first).
+// esc / inline / md come from md.js; blockOf / planSteps / stepMove / SPY_OFFSET from steps.js;
+// foldOpen / previewStatus / ageParts / PREVIEW_* from view.js (all loaded first).
+
+// ------------------------------------------------------------ collapsible blocks
+// <section class="fold" data-fold="name">: the header button toggles the body (aria-expanded, ▾ / ▸).
+// Open / closed is saved per block ("fold.<name>"); defaults are FOLD_DEFAULTS in view.js. Collapsing
+// only hides the body: the drop-downs and timers inside keep their state, so the hotkeys and the step
+// scroll-spy work as before, and the notes article (flex: 1) takes the freed height.
+const folds = {};
+const foldIsOpen = (name) => folds[name]?.querySelector(".foldhead").getAttribute("aria-expanded") === "true";
+function setFold(name, open, save = true) {
+  const sec = folds[name]; if (!sec) return;
+  const head = sec.querySelector(".foldhead");
+  head.setAttribute("aria-expanded", String(open));
+  head.querySelector(".chev").textContent = open ? "▾" : "▸";
+  sec.querySelector(".foldbody").hidden = !open;
+  sec.classList.toggle("closed", !open);
+  if (!save) return;
+  LS.set("fold." + name, open);
+  if (name === "preview" && open) previewTick();  // show a fresh image right away
+}
+document.querySelectorAll(".fold").forEach((sec) => {
+  const name = sec.dataset.fold; folds[name] = sec;
+  setFold(name, foldOpen(name, LS.get("fold." + name, null)), false);
+  sec.querySelector(".foldhead").onclick = () => setFold(name, !foldIsOpen(name));
+});
 
 // ------------------------------------------------------------ font size
 let fs = LS.get("fs", 20);
@@ -166,13 +202,18 @@ function renderStages() {
 function tick() {
   $("#clock").textContent = new Date().toTimeString().slice(0, 8);
   const s = stages[timer.cur];
-  const el = $("#stageTime"), bar = $("#stageBar");
+  const el = $("#stageTime"), bar = $("#stageBar"), sum = $("#timerSum");  // sum: shown while the block is closed
   if (s) {
     const ms = Date.now() - (timer.starts[s.key] || Date.now()), plan = s.minutes * 60000, r = ms / plan;
     el.textContent = `${mmss(ms)} / ${mmss(plan)}`;
     const cls = r >= 1 ? "over" : r >= 0.8 ? "warn" : "";
     el.className = "mono " + cls; bar.className = cls; bar.style.width = Math.min(100, r * 100) + "%";
-  } else { el.textContent = "00:00 / 00:00"; el.className = "mono"; bar.style.width = "0"; }
+    sum.textContent = `${s.short}  ${el.textContent}`;
+    sum.className = "foldsum mono" + (cls === "over" ? " over" : cls === "warn" ? " warnt" : "");
+  } else {
+    el.textContent = "00:00 / 00:00"; el.className = "mono"; bar.style.width = "0";
+    sum.textContent = T("timer.notStarted"); sum.className = "foldsum";
+  }
   $("#classTime").textContent = timer.classStart ? mmss(Date.now() - timer.classStart) : "00:00";
 }
 $("#btnStart").onclick = () => startStage(0);
@@ -245,7 +286,12 @@ function goSection(k, restoreStep = false) {
     hint.innerHTML = `${T("stage.hint", { v, c })} <button id="syncStage">${T("stage.switch", { v })}</button>`;
     $("#syncStage").onclick = () => { startStage(viewStage); hint.hidden = true; };
   } else hint.hidden = true;
-  renderStages();
+  renderStages(); navSummary();
+}
+function navSummary() {  // the "Notes & sections" block's one-line summary while it is closed
+  const sec = sections[secIdx];
+  $("#navSum").textContent = !sec ? "" : `${secIdx + 1}/${sections.length}　${sec.title}` +
+    (steps.length ? " · " + T("step.label", { t: steps[stepIdx].title, i: stepIdx + 1, n: steps.length }) : "");
 }
 $("#secSel").onchange = (e) => { goSection(+e.target.value); e.target.blur(); };  // blur: arrow keys page again
 $("#prev").onclick = () => goSection(secIdx - 1);
@@ -284,7 +330,7 @@ function goStep(k, scroll = true) {
   stepIdx = Math.max(0, Math.min(steps.length - 1, k));
   $("#stepSel").value = stepIdx;
   steps.forEach((s, i) => s.el.classList.toggle("hl", i === stepIdx));
-  LS.set(stepKey(), stepIdx);
+  LS.set(stepKey(), stepIdx); navSummary();
   if (scroll) {
     const art = $("#note");
     art.scrollTop += steps[stepIdx].el.getBoundingClientRect().top - art.getBoundingClientRect().top - stickyOffset(art) - 4;
@@ -369,7 +415,7 @@ function toggleKeys(show) {
   if (open === !o.hidden) return;
   if (open) keysReturn = document.activeElement;
   o.hidden = !open;
-  document.querySelectorAll("body > header, body > main").forEach((el) => (el.inert = open));
+  document.querySelectorAll("body > header, body > main, body > footer").forEach((el) => (el.inert = open));
   if (open) { $("#keysClose").focus(); return; }
   const back = keysReturn; keysReturn = null;
   if (back && back !== document.body && back.isConnected) back.focus();
@@ -399,6 +445,7 @@ document.addEventListener("keydown", (e) => {
 let notesFollow = null, lastNotesKey, webVersion = null, toastTimer = null;
 function toast(msg, ms = 4000) {
   const t = $("#toast"); t.textContent = msg; t.hidden = false;
+  t.style.bottom = $("#dock").offsetHeight + 8 + "px";  // above the projector preview dock
   clearTimeout(toastTimer); if (ms) toastTimer = setTimeout(() => (t.hidden = true), ms);
 }
 function renderFollowBtn() {
@@ -460,7 +507,12 @@ async function pollState() {
     const failed = failedNow.length ? T("hotkeys.failed", { k: failedNow.join(", ") }) : "";
     const w = stale ? "" : (m.warning || failed || m.notice || "");  // warnings win over notices
     warn.hidden = !w; warn.textContent = w;
-    warn.className = "srcwarn small" + (!m.warning && !failed && m.notice ? " info" : "");
+    const info = !m.warning && !failed && m.notice;
+    warn.className = "srcwarn small" + (info ? " info" : "");
+    const sum = $("#sourceSum");  // closed block: a warning replaces the title, so it is never hidden
+    sum.textContent = w ? (info ? w : "⚠ " + w) : $("#srcTitle").textContent;
+    sum.className = "foldsum" + (w ? (info ? " info" : " warn") : "");
+    renderPreview(st);
     handleNotesTarget(st); handleVersion(st);
     const cmds = st.cmds || [];
     if (lastCmdSeq == null) lastCmdSeq = cmds.length ? cmds[cmds.length - 1].seq : 0;
@@ -468,9 +520,55 @@ async function pollState() {
       lastCmdSeq = c.seq;
       if (c.nav) { showTab("notes"); goSection(secIdx + c.nav); }
     }
-  } catch { $("#mirror").textContent = T("server.offline"); $("#mirror").className = "pill blank"; }
+  } catch { $("#mirror").textContent = T("server.offline"); $("#mirror").className = "pill blank"; renderPreview(null); }
 }
 setInterval(pollState, 700);
+
+// ------------------------------------------------------------ projector preview
+// mirror.py writes logs/mirror.preview.jpg every ~2 s, only when the picture changed (frozen frame,
+// blank screen and followed popups included). The panel fetches it only while the block is open and
+// the page is visible, and greys it out when it is old or the mirror is not connected (last image).
+let pvStatus = previewStatus(null), pvUrl = null, pvBusy = false;
+const ageText = (secs) => { const a = ageParts(secs); return T(a.unit === "s" ? "preview.ageS" : "preview.ageM", { n: a.n }); };
+function renderPreview(st) {
+  const was = pvStatus.load, p = (pvStatus = previewStatus(st));
+  const note = p.note === "old" ? T("preview.old", { n: PREVIEW_STALE_SECS }) : p.note ? T("preview." + p.note) : "";
+  const badges = p.badges.map((b) => T("preview." + b));
+  $("#preview").classList.toggle("stale", p.stale);
+  $(".previewmeta").classList.toggle("stale", p.stale);
+  $("#previewBadges").innerHTML = p.badges.map((b) => `<span class="pbadge ${b}">${esc(T("preview." + b))}</span>`).join("");
+  $("#previewNote").textContent = note;
+  $("#previewAge").textContent = p.age == null ? "" : ageText(p.age);
+  $("#previewEmpty").textContent = note || T("preview.none");
+  if (p.hide) { $("#previewImg").hidden = true; $("#previewEmpty").hidden = false; }  // never a stale screen in colour
+  const sum = $("#previewSum");  // closed block: projector modes and problems only
+  sum.textContent = [...badges, p.stale || p.note === "off" ? note : ""].filter(Boolean).join(" · ");
+  sum.className = "foldsum" + (badges.length || p.stale ? " warn" : "");
+  if (p.load && !was) previewTick();  // first image, or the mirror is back: do not wait for the interval
+}
+async function previewTick() {
+  if (pvBusy || !pvStatus.load || !foldIsOpen("preview") || document.visibilityState !== "visible") return;
+  pvBusy = true;
+  try {
+    // A hung request must not block every later refresh (pvBusy): give up after 5 s.
+    const res = await fetch("/api/preview?t=" + Date.now(), { cache: "no-store", signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return;
+    const url = URL.createObjectURL(await res.blob()), img = $("#previewImg");
+    await new Promise((done) => {
+      img.onload = () => {
+        if (pvUrl) URL.revokeObjectURL(pvUrl);
+        pvUrl = url;
+        if (!pvStatus.hide) { img.hidden = false; $("#previewEmpty").hidden = true; }
+        $("#preview").style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
+        done();
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); done(); };
+      img.src = url;
+    });
+  } catch { /* server gone: the next poll greys the image out */ } finally { pvBusy = false; }
+}
+setInterval(previewTick, PREVIEW_REFRESH_MS);
+document.addEventListener("visibilitychange", previewTick);
 
 // ------------------------------------------------------------ AI helper (optional, read-only)
 const chat = $("#chat");
@@ -485,7 +583,10 @@ async function ask(q) {
   const prog = $("#progress"); prog.hidden = false;
   $("#btnSend").disabled = true; $("#btnStop").hidden = false;
   const t0 = Date.now(); let status = T("ai.thinking"), text = "";
-  const timerId = setInterval(() => { prog.textContent = `⏳ ${T("ai.secs", { n: Math.round((Date.now() - t0) / 1000) })} · ${status}`; }, 250);
+  const timerId = setInterval(() => {
+    prog.textContent = `⏳ ${T("ai.secs", { n: Math.round((Date.now() - t0) / 1000) })} · ${status}`;
+    $("#chatSum").textContent = prog.textContent;  // shown while the conversation block is closed
+  }, 250);
   const s = stages[timer.cur];
   const context = $("#withStage").checked && s ? `${s.short} ${s.title}`.trim() : "";
   aborter = new AbortController();
@@ -519,7 +620,7 @@ async function ask(q) {
     if (e.name === "AbortError") addMsg("err", T("ai.stopped")); else addMsg("err", T("ai.error") + esc(String(e.message || e)));
     if (bot.textContent === "…") bot.remove();
   } finally {
-    clearInterval(timerId); prog.hidden = true; aborter = null;
+    clearInterval(timerId); prog.hidden = true; aborter = null; $("#chatSum").textContent = "";
     $("#btnSend").disabled = false; $("#btnStop").hidden = true; chat.scrollTop = chat.scrollHeight;
   }
 }

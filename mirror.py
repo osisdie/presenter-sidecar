@@ -16,6 +16,8 @@ Capture (``capture_backend``)
   - "auto" (default): wgc → printwindow (skipped if black) → mss.
 
 Hotkeys are configurable (``hotkeys`` in config); defaults are listed in README.md.
+Panel preview: every ``preview_interval_sec`` (default 2 s, 0 = off) a small JPEG of the final
+projector frame (frozen frame, blank screen, popup) goes to logs/mirror.preview.jpg, local only.
 Options: --cleanup (after a forced kill: release AppBar and cursor clip), --windowed (test in a
 window), --selfcheck (import dependencies and parse config, then exit; opens no window).
 """
@@ -38,6 +40,7 @@ from presenter_sidecar.geometry import (arrow_polygons, contains, crop_in_window
                                         sample_grid)
 from presenter_sidecar.hotkeys import hotkey_table
 from presenter_sidecar.i18n import t
+from presenter_sidecar.preview import PREVIEW_FILE, PreviewWriter, preview_settings, scaled_size
 from presenter_sidecar.windows import WindowInfo, auto_pick, newest, popup_eligible, source_allowed
 
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
@@ -570,8 +573,10 @@ class AppBar:
 
 
 def cleanup_only():
-    """Called by stop.ps1 after a forced kill: release a leftover AppBar and cursor clip."""
+    """Called by stop.ps1 after a forced kill: release a leftover AppBar and cursor clip, and delete
+    the panel preview (screen content must not outlive the mirror)."""
     user32.ClipCursor(None)
+    PreviewWriter(LOGS / PREVIEW_FILE, 0, None).clear()
     f = LOGS / "mirror.appbar"
     if f.exists():
         try:
@@ -581,6 +586,28 @@ def cleanup_only():
             log("appbar cleanup:", e)
         f.unlink(missing_ok=True)
     log("cleanup done")
+
+
+def jpeg_encoder(quality: int):
+    """JPEG encoder for the panel preview: OpenCV, already installed because windows-capture imports it.
+    Returns None (preview off) when it cannot be imported."""
+    try:
+        import cv2
+        import numpy as np
+    except Exception as e:  # noqa: BLE001 - any import problem only turns the preview off
+        log("preview off: OpenCV not available:", e)
+        return None
+    params = [cv2.IMWRITE_JPEG_QUALITY, int(quality)]
+
+    def encode(rgb: bytes, size) -> bytes:
+        w, h = size
+        bgr = cv2.cvtColor(np.frombuffer(rgb, np.uint8).reshape(h, w, 3), cv2.COLOR_RGB2BGR)
+        ok, buf = cv2.imencode(".jpg", bgr, params)
+        if not ok:
+            raise ValueError("JPEG encoding failed")
+        return buf.tobytes()
+
+    return encode
 
 
 def selfcheck() -> int:
@@ -745,6 +772,19 @@ def main():
         log("WARNING: hotkeys already taken by another program (change them in config.json):", hot.failed)
     rep = Reporter()
     rep.start()
+
+    # Panel preview of the final projector frame. Sampled after the frame is shown, never every frame:
+    # downscale first (a few ms), hash the small image and write only when it changed.
+    pv_interval, pv_width, pv_quality = preview_settings(CFG)
+    preview = PreviewWriter(LOGS / PREVIEW_FILE, 0, None)
+    preview.clear()  # never show a previous run's screen
+    pv_size = scaled_size(W, Hh, pv_width)
+    pv_surf = None   # created on first use, inside the preview's error isolation
+    if pv_interval > 0:
+        enc = jpeg_encoder(pv_quality)
+        if enc:
+            preview = PreviewWriter(LOGS / PREVIEW_FILE, pv_interval, enc, log=lambda m: log("preview:", m))
+            log(f"panel preview: {pv_size[0]}x{pv_size[1]} every {pv_interval:g} s -> logs/{PREVIEW_FILE}")
 
     fps = max(5, min(60, int(CFG.get("fps", 25))))
     frame_dt = 1.0 / fps
@@ -958,6 +998,18 @@ def main():
                             screen.blit(arrow, (int(px) - 2, int(py) - 2))
                 pygame.display.flip()
 
+                # ---- panel preview (what the audience sees now, including freeze / blank / popup)
+                if preview.due(t0):
+                    try:
+                        if pv_surf is None:
+                            pv_surf = pygame.Surface(pv_size, 0, screen)
+                        pygame.transform.smoothscale(screen, pv_size, pv_surf)
+                        preview.offer(t0, pygame.image.tobytes(pv_surf, "RGB"), pv_size)
+                    except Exception as e:  # noqa: BLE001 - the preview must never stop the projector
+                        log("preview off after an error:", e)
+                        preview.interval = 0
+                        preview.clear()
+
                 # ---- stats and report
                 frames += 1
                 tn = time.perf_counter()
@@ -981,6 +1033,7 @@ def main():
                                   "scale": round(geom[1], 4) if geom else None,
                                   "offset": list(geom[2:4]) if geom else None, "panel": panel_rect,
                                   "target": dst and dst["rect"], "hotkeys": hot_specs, "hotkeys_failed": hot.failed,
+                                  "preview": preview.status(tn),
                                   "warning": warn, "notice": notice if tn < notice_until else ""}
                     (LOGS / "mirror.status.json").write_text(json.dumps(rep.status, ensure_ascii=False),
                                                              encoding="utf-8")
@@ -989,6 +1042,7 @@ def main():
                 if spent < frame_dt:
                     time.sleep(frame_dt - spent)
     finally:
+        preview.clear()  # first: screen content must not outlive the mirror, whatever fails below
         user32.ClipCursor(None)
         appbar.remove()
         pw.free()

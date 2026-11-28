@@ -12,10 +12,11 @@ package's published metadata for that version.
 | [mss](https://github.com/BoboTiG/python-mss) | 10.2.0 | MIT | Screen-copy fallback capture |
 | [pygame-ce](https://github.com/pygame-community/pygame-ce) | 2.5.8 | LGPL-2.1 | Projector window, scaling, pointer drawing |
 | [windows-capture](https://github.com/NiiightmareXD/windows-capture) | 2.0.1 | MIT | Windows Graphics Capture backend |
-| [numpy](https://numpy.org) | 2.5.5 (2.2.x on Python 3.11) | BSD-3-Clause (bundled parts: 0BSD, MIT, Zlib, CC0-1.0) | Frame buffers (dependency of windows-capture) |
-| [opencv-python](https://github.com/opencv/opencv-python) | 5.1.0.95 | Apache-2.0 (plus bundled third-party licences) | Imported by windows-capture |
+| [numpy](https://numpy.org) | 2.5.5 (2.2.x on Python 3.11) | BSD-3-Clause (bundled parts: 0BSD, MIT, Zlib, CC0-1.0) | Frame buffers (dependency of windows-capture); panel preview pixels |
+| [opencv-python](https://github.com/opencv/opencv-python) | 5.1.0.95 | Apache-2.0 (plus bundled third-party licences) | Imported by windows-capture; encodes the panel preview JPEG |
 
-Development only: [pytest](https://pytest.org) (MIT).
+Development only: [pytest](https://pytest.org) (MIT); optionally [Playwright](https://playwright.dev/python/)
+(Apache-2.0) and [Pillow](https://python-pillow.org) (MIT-CMU) for `scripts/media/` and `tests/test_panel_ui.py`.
 
 ## About pygame-ce (LGPL-2.1)
 

@@ -21,6 +21,11 @@ Only the latest release receives fixes.
 - The optional AI helper runs the Claude Code CLI read-only: only `Read`, `Grep` and `Glob`; shell,
   edit, write and web tools are disallowed; `.env*`, key files, `.git/`, `config.json` and `logs/`
   are denied in the CLI's permission settings.
+- The projector preview (`logs/mirror.preview.jpg`) contains screen content. It is written atomically by
+  mirror.py, stays in the gitignored `logs/` folder (denied to the AI helper), is deleted when the mirror
+  starts and stops (and by `mirror.py --cleanup`, which `stop.ps1` runs after a forced kill) and is never uploaded. `GET /api/preview` has the same `Host` check as the other
+  endpoints and answers with `Cache-Control: no-store` and `Cross-Origin-Resource-Policy: same-origin`,
+  so other web pages cannot embed it. `"preview_interval_sec": 0` disables it.
 - `cdp_url` must be a loopback address. A browser started with `--remote-debugging-port` can be
   fully controlled by any local process; only enable it for a browser profile used for presenting.
 - `notes_files`, `pacing_file` and `content_root` are trusted paths: `config.json` is the presenter's

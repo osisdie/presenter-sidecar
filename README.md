@@ -207,6 +207,29 @@ A small Chrome/Edge window that only you see. Title: "Presenter Panel".
 - Auto-follow jumps only when the target section changes, so manual paging is never overridden.
   Pages without a matching rule leave the notes where they are.
 
+**Collapsible blocks**
+- Every block of the panel has a header row: click it (or focus it with Tab and press Enter / Space) to
+  open ▾ or close ▸ it. Blocks: **Source** (projected window and warnings), **Timer** (section buttons,
+  progress bar, total), **Notes & sections** (notes files, auto-follow, section and step bars) on the Notes
+  tab, **Conversation** on the AI helper tab, and **Projector view** at the bottom.
+- A closed block keeps a one-line summary in its header: the source title (a warning replaces it, so
+  warnings are never hidden), the section timer, `3/7 Demo B · 2. Step (2/4)`, frozen / blank.
+- The notes always get the remaining height. Keys (← / →, ↑ / ↓, J / K, ?, Esc) and the step scroll-spy
+  work the same with blocks closed. Each block's state is remembered (per panel browser profile).
+  New installs start with everything open except the projector view.
+
+**Projector view** (bottom of the panel, closed by default)
+- A small picture of what the audience sees *now*: the frozen frame while F8 is on, the "Please wait"
+  screen while F9 is on, a followed popup. It is not live video: mirror.py saves a small JPEG
+  (`preview_width`, default 480 px) every `preview_interval_sec` (default 2 s) and only when it changed.
+- Open, it reloads every ~2 s while the panel is visible; closed or hidden, it loads nothing.
+  It shows the age ("3 s ago") and **Frozen** / **Blank** badges. It is greyed out with a note when the
+  picture is more than 10 s old or the mirror is not connected (the last picture stays, greyed).
+- `"preview_interval_sec": 0` turns it off in mirror.py (restart the mirror). If the preview fails (for
+  example the JPEG encoder), only the preview turns off ("Preview off"); the projector keeps running.
+- The notes always keep at least a quarter of the window: in a short panel the preview picture gets
+  smaller first, down to its header row.
+
 **Timers**
 - Sections and minutes come from `pacing_file` (see [`examples/pacing.md`](examples/pacing.md)).
 - Start, then "Next" per section, or click a section. The timer turns orange at 80 % and red when over.
@@ -270,6 +293,8 @@ except `notes_files`, `pacing_file` and `notes_rules`, which reload live (press 
 | `capture_backend` | `auto` | `auto`, `wgc`, `printwindow` or `mss` |
 | `follow_popups` / `popup_min_size` | `true` / `[320, 240]` | Popup following |
 | `fps` / `smooth_scale` | `25` / `true` | Frame-rate cap, scaling quality |
+| `preview_interval_sec` | `2` | Seconds between projector-preview pictures for the panel; `0` turns the preview off (min. 0.5) |
+| `preview_width` / `preview_quality` | `480` / `70` | Preview width in px (never upscaled) and JPEG quality (10–95) |
 | `pointer_*`, `spotlight_*`, `ripple_*` | | Pointer size, colours, spotlight, ripples |
 | `blank_text` / `blank_subtext` / `font_path` | | Blank screen text and font (set `font_path` for CJK text) |
 | `panel_host` / `panel_port` | `127.0.0.1` / `8765` | Panel server address (loopback only) |
@@ -346,13 +371,22 @@ only `python3` is needed.
   presenter-sidecar only accepts loopback `cdp_url` values and, per tab, evaluates one read-only
   expression (`document.visibilityState`, `document.hasFocus()`, `location.href`).
 - **Hidden from the audience**: source titles, warnings and notices appear only in the panel.
+- **Projector preview**: `logs/mirror.preview.jpg` holds a small copy of what is on the projector, so it
+  contains screen content. It stays on this computer in `logs/` (gitignored, and denied to the AI helper),
+  is never uploaded, is replaced in place every few seconds and is deleted when the mirror starts and stops
+  (also by `stop.bat` after a forced kill).
+  The panel server sends it only to `127.0.0.1` pages, with `Cache-Control: no-store` and
+  `Cross-Origin-Resource-Policy: same-origin` (other sites cannot embed it). Set
+  `"preview_interval_sec": 0` to not write it at all.
 
 ## Development
 
 ```bash
 python -m pip install -r requirements-dev.txt
 python -m pytest -q                     # unit tests, no display needed (Linux/macOS/Windows)
-node --test tests/js/*.test.js          # panel step rule (web/steps.js) on the shared fixtures
+node --test tests/js/*.test.js          # panel step rule (web/steps.js) on the shared fixtures, web/view.js
+# Headless panel checks (tests/test_panel_ui.py; skipped without Playwright, run by the CI "ui" job):
+python -m pip install playwright pillow && python -m playwright install chromium
 scripts/check/install-hooks.sh          # pre-commit: gitleaks + private-term scan
 scripts/check/scan-private.sh --all
 ```
@@ -362,10 +396,10 @@ scripts/check/scan-private.sh --all
 | `mirror.py` | Windows: source selection, capture, scaling, projector window, pointer, hotkeys, AppBar |
 | `panel_server.py` | Panel web server and AI helper backend (standard library only) |
 | `presenter_sidecar/` | Pure modules: geometry, window rules, notes rules, hotkeys, config, CDP, messages |
-| `web/` | Panel front end (`index.html`, `panel.js`, `panel.css`; DOM-free `md.js` and `steps.js`, tested under node) and `selftest/` pages |
+| `web/` | Panel front end (`index.html`, `panel.js`, `panel.css`; DOM-free `md.js`, `steps.js` and `view.js`, tested under node) and `selftest/` pages |
 | `examples/` | Mock talk notes (English and 繁體中文), checklist, pacing, demo site |
 | `start.ps1` / `stop.ps1` (`.bat`) | Start and stop everything |
-| `tests/` | Unit tests |
+| `tests/` | Unit tests; `test_panel_ui.py` drives the panel in headless Chromium when Playwright is installed |
 | `scripts/media/` | Re-generates the mock screenshots in `docs/media/` (headless; needs `playwright` and `pillow`) |
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).

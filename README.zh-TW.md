@@ -181,6 +181,26 @@ py -m venv .venv
   - `url_contains` 比對完整網址，**含 `#錨點`**；需要 `cdp_url`（見下方）。
 - 只有「對應的段落改變」時才跳，所以手動翻頁不會被蓋掉；沒有對應規則的頁面不會讓講稿跳動。
 
+**可收合的區塊**
+- 面板的每個區塊都有一列標題：點一下（或用 Tab 移到標題再按 Enter／空白鍵）就能展開 ▾ 或收合 ▸。
+  區塊有：**投影來源**（投影中的視窗與警告）、**計時**（段落按鈕、進度條、全場時間）、講稿分頁的
+  **講稿與章節**（講稿檔、自動跟隨、章節與步驟列）、AI 助手分頁的**對話**，以及最下方的**投影畫面**。
+- 收合後標題列會留一行摘要：投影來源標題（有警告時改顯示警告，所以警告不會被藏起來）、目前段落計時、
+  `3/7 Demo B · 2. 步驟（2/4）`、凍結／請稍候。
+- 講稿永遠佔滿剩下的高度。區塊收起來時，按鍵（←／→、↑／↓、J／K、?、Esc）和步驟自動對位都照常運作。
+  每個區塊的開合狀態會記住（依面板的瀏覽器設定檔）。第一次使用時，除了投影畫面以外都是展開的。
+
+**投影畫面**（面板最下方，預設收合）
+- 小小一張「觀眾現在看到什麼」：按 F8 凍結時是凍結的畫面、按 F9 時是「請稍候」畫面，也包含自動跟隨的彈窗。
+  這不是即時影像：mirror.py 每 `preview_interval_sec`（預設 2 秒）存一張小 JPEG（`preview_width`，預設 480 px），
+  畫面沒變就不寫檔。
+- 展開且面板看得到時，約每 2 秒更新一次；收合或面板被遮住時完全不載入。
+  會顯示多久以前（「3 秒前」）和**凍結**／**請稍候**標籤。畫面超過 10 秒沒更新、或 mirror 沒連線時會變灰並加註
+  （保留最後一張，變灰）。
+- `"preview_interval_sec": 0` 會在 mirror.py 關掉這個功能（需重開 mirror）。預覽出錯時（例如 JPEG 編碼失敗）
+  只會關掉預覽（顯示「預覽已關閉」），投影照常。
+- 講稿至少保留視窗四分之一的高度：面板很矮時，先縮小預覽畫面，最小只剩標題列。
+
 **計時**
 - 段落和分鐘數來自 `pacing_file`（格式見 [`examples/pacing.md`](examples/pacing.md)）。
 - 按「開始」，每段按「下一段」，或直接點段落。用掉 80% 變橘色，超時變紅色。
@@ -240,6 +260,8 @@ repo 裡只有 `config.example.json`；你自己的 `config.json` 不進版控�
 | `capture_backend` | `auto` | `auto`、`wgc`、`printwindow` 或 `mss` |
 | `follow_popups`／`popup_min_size` | `true`／`[320, 240]` | 彈窗跟隨 |
 | `fps`／`smooth_scale` | `25`／`true` | 更新率上限、縮放品質 |
+| `preview_interval_sec` | `2` | 給面板的投影畫面預覽，每幾秒存一張；`0` 關閉（最少 0.5） |
+| `preview_width`／`preview_quality` | `480`／`70` | 預覽寬度（px，不會放大）與 JPEG 品質（10–95） |
 | `pointer_*`、`spotlight_*`、`ripple_*` | | 游標大小、顏色、聚光燈、波紋 |
 | `blank_text`／`blank_subtext`／`font_path` | | 「請稍候」畫面的文字與字型（中文請設定 `font_path`，例如 `C:\\Windows\\Fonts\\msjh.ttc`） |
 | `panel_host`／`panel_port` | `127.0.0.1`／`8765` | 面板伺服器位址（只能是本機） |
@@ -303,13 +325,19 @@ Windows 必須能連到 WSL 的 `127.0.0.1`：WSL 預設的 localhost 轉送或 
   presenter-sidecar 只接受本機（loopback）的 `cdp_url`，而且每個分頁只執行一個唯讀運算式
   （`document.visibilityState`、`document.hasFocus()`、`location.href`）。
 - **觀眾看不到**：來源標題、警告和提示只會出現在面板上。
+- **投影畫面預覽**：`logs/mirror.preview.jpg` 是投影內容的縮小版，所以裡面有螢幕畫面。它只留在這台電腦的 `logs/`
+  （已列入 .gitignore，AI 助手也被禁止讀取），不會上傳，每幾秒原地覆蓋，mirror 啟動和結束時都會刪掉（強制關閉後，`stop.bat` 也會刪）。
+  面板伺服器只把它給 `127.0.0.1` 的頁面，並加上 `Cache-Control: no-store` 和
+  `Cross-Origin-Resource-Policy: same-origin`（其他網站無法嵌入）。設定 `"preview_interval_sec": 0` 就完全不寫這個檔。
 
 ## 開發
 
 ```bash
 python -m pip install -r requirements-dev.txt
 python -m pytest -q                     # 單元測試，不需要螢幕（Linux／macOS／Windows）
-node --test tests/js/*.test.js          # 面板的步驟規則（web/steps.js）跑共用測資
+node --test tests/js/*.test.js          # 面板的步驟規則（web/steps.js）跑共用測資，以及 web/view.js
+# headless 面板測試（tests/test_panel_ui.py；沒裝 Playwright 會自動略過，CI 的 ui job 會跑）
+python -m pip install playwright pillow && python -m playwright install chromium
 scripts/check/install-hooks.sh          # pre-commit：gitleaks＋私人字詞掃描
 scripts/check/scan-private.sh --all
 ```
@@ -319,10 +347,10 @@ scripts/check/scan-private.sh --all
 | `mirror.py` | Windows：選來源、擷取、縮放、投影視窗、游標、熱鍵、AppBar |
 | `panel_server.py` | 面板網頁伺服器與 AI 助手後端（只用標準函式庫） |
 | `presenter_sidecar/` | 純邏輯模組：幾何、視窗規則、講稿規則、熱鍵、設定、CDP、訊息 |
-| `web/` | 面板前端（`index.html`、`panel.js`、`panel.css`；不碰 DOM 的 `md.js`、`steps.js` 可在 node 測試）與 `selftest/` 測試頁 |
+| `web/` | 面板前端（`index.html`、`panel.js`、`panel.css`；不碰 DOM 的 `md.js`、`steps.js`、`view.js` 可在 node 測試）與 `selftest/` 測試頁 |
 | `examples/` | 虛構的講稿（英文與繁體中文）、檢查清單、計時檔、範例網站 |
 | `start.ps1`／`stop.ps1`（`.bat`） | 啟動與關閉全部 |
-| `tests/` | 單元測試 |
+| `tests/` | 單元測試；裝了 Playwright 時，`test_panel_ui.py` 會用 headless Chromium 操作面板 |
 | `scripts/media/` | 重新產生 `docs/media/` 的範例截圖（headless；需要 `playwright` 和 `pillow`） |
 
 另見 [CONTRIBUTING.md](CONTRIBUTING.md) 和 [SECURITY.md](SECURITY.md)。

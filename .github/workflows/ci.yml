@@ -39,6 +39,23 @@ jobs:
           "$RUNNER_TEMP/gitleaks" git --no-banner --redact .
           "$RUNNER_TEMP/gitleaks" dir --no-banner --redact .
 
+  ui:
+    # The panel in headless Chromium (tests/test_panel_ui.py); REQUIRE_UI_TESTS makes a missing browser fail.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Playwright and Chromium
+        run: |
+          python -m pip install -r requirements-dev.txt playwright pillow
+          python -m playwright install --with-deps chromium
+      - name: Panel UI tests
+        env:
+          REQUIRE_UI_TESTS: "1"
+        run: python -m pytest -q tests/test_panel_ui.py
+
   windows:
     runs-on: windows-latest
     strategy:

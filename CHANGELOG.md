@@ -4,6 +4,43 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - Unreleased
+
+### Added
+
+- Projector preview in the panel ("Projector view" / 投影畫面), docked at the bottom and closed by default:
+  a small picture of what the audience sees now, including the frozen frame (F8), the blank screen (F9)
+  and followed popups.
+  - mirror.py samples the final projector frame every `preview_interval_sec` (default 2 s, `0` = off),
+    downscales it to `preview_width` (480 px) first, skips the write when the small image is unchanged
+    (CRC32) and replaces `logs/mirror.preview.jpg` atomically (JPEG `preview_quality` 70, OpenCV, already
+    installed for windows-capture). Never on every frame; any preview error turns only the preview off.
+  - `GET /api/preview` (same `Host` check, `Cache-Control: no-store`, `Cross-Origin-Resource-Policy: same-origin`);
+    `/api/state` reports `preview: {available, enabled, age}`, where the age comes from the mirror's own
+    relative report (no Windows / WSL clock comparison).
+  - The panel reloads it every ~2 s only while it is open and the page is visible; shows "3 s ago",
+    Frozen / Blank badges, and greys it out after 10 s without an update or when the mirror is not connected.
+  - The file is deleted when the mirror starts and stops, and by `mirror.py --cleanup` (`stop.ps1` after a
+    forced kill); it lives only in the gitignored `logs/`. Failed writes are retried, logged at most once a
+    minute and counted in the status (`preview.errors`).
+  - "Preview off" or a deleted file hides the last picture instead of showing an old screen in colour;
+    the fetch gives up after 5 s.
+- Collapsible panel blocks: Source, Timer, Notes & sections, Conversation (AI helper tab) and Projector view.
+  Header buttons with ▾ / ▸ and `aria-expanded`; a closed block shows a one-line summary (warnings replace the
+  source title, so they stay visible); state saved per block in localStorage. The notes keep the remaining height,
+  and the hotkeys and step scroll-spy work unchanged.
+- `web/view.js` (fold defaults, preview status; DOM-free, `tests/js/view.test.js`), `presenter_sidecar/preview.py`
+  (settings, sampling, unchanged-skip, atomic write; `tests/test_preview.py`), and `tests/test_panel_ui.py`:
+  headless Chromium checks of the panel (skipped without Playwright).
+
+- CI: a `ui` job runs `tests/test_panel_ui.py` in headless Chromium (`REQUIRE_UI_TESTS=1`: never skipped there).
+
+### Fixed
+
+- The notes article no longer grows past the window in a short panel: its bottom scroll room is a spacer
+  instead of 40vh of padding (padding cannot shrink). The notes keep at least 25vh; the preview dock shrinks
+  first (checked at 600 and 700 px tall with every block open).
+
 ## [0.2.0] - 2026-11-27
 
 ### Added
