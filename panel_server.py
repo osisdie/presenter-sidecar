@@ -9,7 +9,8 @@
 - GET  /api/state        mirror status + notes target (?profile= is the panel's profile) + queued hotkey
                          commands + preview age + the requested startup profile
 - GET  /api/preview      small JPEG of the projector written by mirror.py (logs/, local only)
-- POST /api/mirror       mirror.py reports its status
+- POST /api/mirror       mirror.py reports its status; the reply hands it the queued panel actions ("do")
+- POST /api/focus        bring the projected window to the front (panel: click the projector preview)
 - POST /api/cmd          mirror.py forwards notes paging hotkeys
 - POST /api/panel        panel reports which section it shows
 - POST /api/profile      ask open panels to switch profile (start.ps1 -Profile while the server runs)
@@ -37,6 +38,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from presenter_sidecar import PANEL_TITLE, __version__, cdp
+from presenter_sidecar.commands import MIRROR_ACTIONS, CommandQueue
 from presenter_sidecar.config import ROOT, config_path, content_root, load_config, resolve
 from presenter_sidecar.i18n import t
 from presenter_sidecar.notes import (choose_active_tab, clean_title, notes_target, pacing_from_notes, parse_pacing,
@@ -136,6 +138,7 @@ class App:
         self.mirror_ts = 0.0
         self.cmd_seq = 0
         self.cmds: list[dict] = []
+        self.mirror_do = CommandQueue()  # panel -> mirror actions, collected by the mirror's next report
         self.panel: dict = {}
         self._cdp = {"t": 0.0, "tabs": [], "err": None}
         self._live: dict[str, tuple[float, tuple[str, bool, str]]] = {}
@@ -297,6 +300,24 @@ class App:
         return {"available": mtime is not None, "enabled": enabled,
                 "age": None if img_age is None else round(img_age, 1)}
 
+    # ---- panel -> mirror actions (presenter_sidecar.commands)
+    def queue_mirror(self, action: str) -> dict:
+        """Queue a whitelisted action for the mirror. The reply says whether a mirror is connected and what it
+        would act on now (``target``: "popup", "source" or None), so the panel can say so at once."""
+        now = time.time()
+        with self.lock:
+            age = now - self.mirror_ts if self.mirror_ts else None
+            connected = age is not None and age <= MIRROR_STALE_SECS
+            # No mirror: nothing to queue (the queue's TTL also drops what a mirror never collects).
+            queued = connected and self.mirror_do.push(action, now)
+            mirror = self.mirror if isinstance(self.mirror, dict) else {}
+        target = None
+        if connected and mirror.get("following_popup"):
+            target = "popup"
+        elif connected and mirror.get("source_state") not in (None, "none", "closed"):
+            target = "source"
+        return {"ok": action in MIRROR_ACTIONS, "queued": queued, "mirror": connected, "target": target}
+
     def web_version(self) -> str:
         try:
             return str(max(f.stat().st_mtime_ns for f in WEB.rglob("*") if f.is_file()))
@@ -422,7 +443,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/mirror":
             with app.lock:
                 app.mirror, app.mirror_ts = body, time.time()
-            return self._json({"ok": True})
+                todo = app.mirror_do.take(app.mirror_ts)
+            return self._json({"ok": True, "do": todo})
+        if path == "/api/focus":  # the panel's projector preview was clicked
+            return self._json(app.queue_mirror("focus"))
         if path == "/api/panel":
             with app.lock:
                 app.panel = {**body, "ts": time.time()}

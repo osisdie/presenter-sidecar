@@ -33,6 +33,7 @@ import urllib.request
 from pathlib import Path
 
 from presenter_sidecar import MIRROR_TITLE, PANEL_TITLE, __version__
+from presenter_sidecar.commands import Inbox
 from presenter_sidecar.config import load_config
 from presenter_sidecar.geometry import (arrow_polygons, contains, crop_in_window, fit_letterbox,
                                         frame_margins as calc_margins, intersects, map_point, mostly_black,
@@ -41,7 +42,7 @@ from presenter_sidecar.geometry import (arrow_polygons, contains, crop_in_window
 from presenter_sidecar.hotkeys import hotkey_table
 from presenter_sidecar.i18n import t
 from presenter_sidecar.preview import PREVIEW_FILE, PreviewWriter, preview_settings, scaled_size
-from presenter_sidecar.windows import WindowInfo, auto_pick, newest, popup_eligible, source_allowed
+from presenter_sidecar.windows import WindowInfo, auto_pick, focus_target, newest, popup_eligible, source_allowed
 
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 HERE = Path(__file__).resolve().parent
@@ -80,6 +81,10 @@ user32.WindowFromPoint.restype = H
 user32.GetAncestor.argtypes = [H, ctypes.c_uint]
 user32.GetAncestor.restype = H
 user32.GetWindowThreadProcessId.argtypes = [H, ctypes.POINTER(wintypes.DWORD)]
+user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+user32.SetForegroundWindow.argtypes = [H]
+user32.BringWindowToTop.argtypes = [H]
+user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
 user32.PrintWindow.argtypes = [H, wintypes.HDC, ctypes.c_uint]
 user32.GetDC.argtypes = [H]
 user32.GetDC.restype = wintypes.HDC
@@ -247,6 +252,23 @@ def place_window(hwnd, rect, topmost=False):
     after = HWND_TOPMOST if topmost else H(0)
     flags = SWP_NOACTIVATE | (0 if topmost else SWP_NOZORDER)
     user32.SetWindowPos(hwnd, after, x, y, w, h, flags)
+
+
+def bring_to_front(hwnd) -> bool:
+    """Restore ``hwnd`` if minimised and make it the foreground window. Windows lets only the foreground
+    process change the foreground, so this thread briefly shares input with the current foreground thread."""
+    if user32.IsIconic(hwnd):
+        user32.ShowWindow(hwnd, SW_RESTORE)
+    fg = user32.GetForegroundWindow()
+    fg_tid = user32.GetWindowThreadProcessId(fg, None) if fg else 0
+    my_tid = kernel32.GetCurrentThreadId()
+    attached = bool(fg_tid and fg_tid != my_tid and user32.AttachThreadInput(my_tid, fg_tid, True))
+    try:
+        user32.BringWindowToTop(hwnd)
+        return bool(user32.SetForegroundWindow(hwnd))
+    finally:
+        if attached:
+            user32.AttachThreadInput(my_tid, fg_tid, False)
 
 
 def root_at(x, y):
@@ -516,15 +538,18 @@ class Reporter(threading.Thread):
         self.status: dict = {}
         self.url = f"http://{CFG.get('panel_host', '127.0.0.1')}:{CFG.get('panel_port', 8765)}"
         self.outbox: list[dict] = []
+        self.inbox = Inbox()  # panel actions (whitelisted in presenter_sidecar.commands), popped by the main loop
         self.lock = threading.Lock()
 
-    def send(self, path, body):
+    def send(self, path, body) -> dict:
+        """POST ``body``; the parsed JSON reply, or {} when the server is down or replies with something else."""
         req = urllib.request.Request(self.url + path, data=json.dumps(body).encode(), method="POST",
                                      headers={"Content-Type": "application/json", "X-Panel": "1"})
         try:
-            urllib.request.urlopen(req, timeout=0.8).read()
+            reply = json.loads(urllib.request.urlopen(req, timeout=0.8).read() or b"{}")
+            return reply if isinstance(reply, dict) else {}
         except Exception:
-            pass
+            return {}
 
     def cmd(self, body):
         with self.lock:
@@ -536,7 +561,7 @@ class Reporter(threading.Thread):
                 out, self.outbox = self.outbox, []
             for b in out:
                 self.send("/api/cmd", b)
-            self.send("/api/mirror", self.status)
+            self.inbox.add_reply(self.send("/api/mirror", self.status))
             time.sleep(1.0)
 
 
@@ -823,7 +848,7 @@ def main():
                 for e in pygame.event.get():
                     if e.type == pygame.QUIT:
                         running = False
-                for ev in hot.pop():
+                for ev in hot.pop() + rep.inbox.pop():
                     if ev == "quit":
                         running = False
                     elif ev == "freeze":
@@ -851,6 +876,17 @@ def main():
                             if appbar.hwnd:  # with an AppBar, maximised fits beside the panel
                                 user32.ShowWindow(source.hwnd, SW_MAXIMIZE)
                             note(t(LANG, "note.brought"))
+                    elif ev == "focus":  # panel: the projector preview was clicked
+                        tgt = focus_target(ph, source.hwnd, lambda h: bool(user32.IsWindow(h)))
+                        if not tgt:
+                            note(t(LANG, "note.focus_none", pick=keyname("pick")))
+                        else:
+                            try:
+                                ok = bring_to_front(tgt)
+                            except Exception as e:  # noqa: BLE001 - never stop the projector over this
+                                log("bring to front failed:", e)
+                                ok = False
+                            note(t(LANG, "note.focus", title=window_text(tgt)) if ok else t(LANG, "note.focus_failed"))
                     elif ev == "popups":
                         popup.enabled = not popup.enabled
                         if not popup.enabled:

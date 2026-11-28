@@ -1,6 +1,7 @@
 "use strict";
 // View rules for the panel that do not touch the DOM (tests/js/view.test.js runs them under node):
-// which blocks start collapsed, how the projector preview is shown, and which profile to open.
+// which blocks start collapsed, how the projector preview is shown (and what clicking it says), and which
+// profile to open.
 
 // Collapsible blocks (data-fold in index.html). Saved per block in localStorage ("fold.<name>");
 // a block never toggled uses its default here. The preview starts collapsed (it is a check, not
@@ -45,6 +46,21 @@ function ageParts(secs) {
   return s < 60 ? { n: s, unit: "s" } : { n: Math.floor(s / 60), unit: "min" };
 }
 
+// Clicking the projector preview (POST /api/focus). r: the server's reply, or null when the request failed.
+// Returns the i18n key of the toast: "focus.popup" / "focus.source" (the mirror will bring that window to the
+// front), "focus.noSource" (nothing projected yet: press the pick hotkey), "focus.offline" (mirror not
+// connected: nothing was queued) or "focus.failed".
+function focusToast(r) {
+  if (!r || !r.ok) return "focus.failed";
+  if (!r.mirror) return "focus.offline";
+  if (r.target === "popup" || r.target === "source") return "focus." + r.target;
+  return "focus.noSource";
+}
+// A key that presses a role="button" element: Enter or Space, without modifiers or auto-repeat.
+function activatesButton(e) {
+  return (e.key === "Enter" || e.key === " ") && !e.repeat && !e.ctrlKey && !e.altKey && !e.metaKey && !e.isComposing;
+}
+
 // Profiles. names: from /api/config; saved: the profile last shown in this panel; req: the server's
 // startup profile { name, id }. id is set only for an explicit request (--profile / PRESENTER_PROFILE /
 // "profile" in the config / start.ps1 -Profile); seen: the last request id this panel obeyed. An explicit request wins once per
@@ -77,5 +93,5 @@ function targetKey(nt) { return nt && nt.key ? `${nt.profile ?? ""}\u0001${nt.ke
 
 if (typeof module !== "undefined") {
   module.exports = { FOLD_DEFAULTS, foldOpen, PREVIEW_REFRESH_MS, PREVIEW_STALE_SECS, MIRROR_STALE_SECS,
-    previewStatus, ageParts, pickProfile, profileKey, profileFallback, targetKey, stageIndex };
+    previewStatus, ageParts, focusToast, activatesButton, pickProfile, profileKey, profileFallback, targetKey, stageIndex };
 }

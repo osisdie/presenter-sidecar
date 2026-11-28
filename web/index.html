@@ -110,7 +110,8 @@
   <section class="fold" data-fold="preview">
     <button type="button" class="foldhead" aria-expanded="true" aria-controls="previewBody"><span class="chev" aria-hidden="true">▾</span><span class="foldtitle" data-i18n="fold.preview"></span><span id="previewSum" class="foldsum"></span></button>
     <div class="foldbody" id="previewBody">
-      <div id="preview" class="preview">
+      <!-- Click / Enter / Space: mirror.py brings the projected window (followed popup, else source) to the front. -->
+      <div id="preview" class="preview" role="button" tabindex="0" data-i18n-aria="preview.focusAria" data-i18n-title="preview.focusTip">
         <img id="previewImg" alt="" data-i18n-alt="preview.alt" hidden>
         <div id="previewEmpty" class="previewempty small muted"></div>
         <div id="previewBadges" class="pbadges"></div>

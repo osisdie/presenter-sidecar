@@ -53,6 +53,21 @@ All notable changes to this project are documented here. The format follows
   - `/api/notes` and `/api/pacing` take `?profile=`; `/api/state?profile=` returns the target's `profile` and
     the startup request `profile_req`.
   - Example: a `meeting` profile with `examples/notes/meeting.md`.
+- Click the projector view (or focus it and press Enter / Space) to bring the projected window to the front:
+  the followed popup while one is projected, otherwise the source window (restored if minimised). Useful with
+  many windows open.
+  - Panel: the picture is a `role="button"` with an aria-label, tooltip, pointer cursor, hover outline and a
+    focus ring; the fold header stays a separate button. A toast says what happens: brought forward (source or
+    popup), "nothing projected yet: press F7", mirror not connected, or the server not responding.
+  - `POST /api/focus` (same `Host` and `X-Panel` checks) queues the action only while a mirror is connected;
+    `/api/mirror` replies `{"ok": true, "do": [...]}` and hands the queue over once. Repeated clicks are one
+    action; an action nobody collects within 5 s is dropped.
+  - mirror.py restores the window if minimised, then `BringWindowToTop` + `SetForegroundWindow` while briefly
+    attached (`AttachThreadInput`) to the foreground thread, and confirms in the Source block (or says to press
+    F7 / to click the window when Windows refuses).
+  - `presenter_sidecar/commands.py`: a generic, whitelisted panel → mirror channel (`MIRROR_ACTIONS`,
+    `CommandQueue`, the mirror's `Inbox`; `tests/test_commands.py`); `windows.focus_target`; `view.js`
+    `focusToast` / `activatesButton`.
 
 ### Fixed
 
