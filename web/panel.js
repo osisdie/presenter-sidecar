@@ -29,7 +29,8 @@ const I18N = {
     "mirror.live": "Projector: live {fps} fps · {style}", "style.ring": "ring", "style.spotlight": "spotlight",
     "mirror.unclipped": " · mouse unlocked", "server.offline": "Panel server not connected",
     "src.none": "(none: click the window to project and press {pick})", "src.popup": "Popup (auto): {t}",
-    "src.noPopups": "  (popups not followed)", "hotkeys.failed": "Hotkeys taken by another program: {k}. Change them in config.json.",
+    "src.noPopups": "  (popups not followed)", "src.region": "Region", "src.regionTip": "Region mode: everything on top of the window's area is projected (press {freeze} before anything private)",
+    "hotkeys.failed": "Hotkeys taken by another program: {k}. Change them in config.json.",
     "reload.later": "Panel updated: press F5 after your AI conversation", "ai.placeholder": "Ask about your notes or materials…",
     "ai.withStage": "Include current section", "ai.new": "New chat", "ai.newTip": "Clear the conversation",
     "ai.stop": "Stop", "ai.send": "Send", "ai.intro": "Read-only assistant: it can read files under the configured folder, cannot edit files or run commands, and is blocked from .env and key files. <kbd>Enter</kbd> sends, <kbd>Shift</kbd>+<kbd>Enter</kbd> adds a line.",
@@ -51,13 +52,14 @@ const I18N = {
     "hk.next": "Next notes section, from any window", "hk.prev": "Previous notes section, from any window",
     "hk.popups": "Follow popups: on / off", "hk.clip": "Confine the mouse to the presenter display: on / off",
     "hk.quit": "Quit the mirror (the panel stays open)",
+    "hk.region": "Region mode: project the window's screen area, menus and dialogs included / back to the window",
     "pk.section": "Previous / next section", "pk.step": "Previous / next step (no steps: scroll)",
     "pk.home": "First section", "pk.keys": "Show / hide this list", "pk.reload": "Reload the panel (after editing notes or config)",
     "fold.preview": "Projector view", "fold.source": "Source", "fold.timer": "Timer", "fold.nav": "Notes & sections",
     "fold.chat": "Conversation", "preview.alt": "What the audience sees on the projector now",
     "preview.ageS": "{n} s ago", "preview.ageM": "{n} min ago", "preview.offline": "Mirror not connected",
     "preview.off": "Preview off", "preview.none": "No image yet",
-    "preview.old": "Not updated for over {n} s", "preview.frozen": "Frozen", "preview.blank": "Blank",
+    "preview.old": "Not updated for over {n} s", "preview.frozen": "Frozen", "preview.blank": "Blank", "preview.region": "Region",
     "preview.focusTip": "Click (or Enter): bring the projected window to the front",
     "preview.focusAria": "Projector view: bring the projected window to the front",
     "focus.source": "Asked the mirror to bring the projected window to the front",
@@ -84,7 +86,8 @@ const I18N = {
     "mirror.live": "投影：即時 {fps}fps · {style}", "style.ring": "光圈", "style.spotlight": "聚光燈",
     "mirror.unclipped": " · 滑鼠未鎖", "server.offline": "面板伺服器未連線",
     "src.none": "（未指定，請點要投影的視窗再按 {pick}）", "src.popup": "彈窗（自動）：{t}",
-    "src.noPopups": "　（不跟隨彈窗）", "hotkeys.failed": "這些熱鍵被其他程式佔用：{k}，請在 config.json 改掉。",
+    "src.noPopups": "　（不跟隨彈窗）", "src.region": "區域", "src.regionTip": "區域模式：視窗範圍內出現的任何東西都會投出去（私人操作前先按 {freeze}）",
+    "hotkeys.failed": "這些熱鍵被其他程式佔用：{k}，請在 config.json 改掉。",
     "reload.later": "面板程式已更新：問完 AI 後按 F5 重新載入", "ai.placeholder": "問講稿或教材的問題…",
     "ai.withStage": "附上目前段落", "ai.new": "新對話", "ai.newTip": "清掉對話，下一題重新開始",
     "ai.stop": "停止", "ai.send": "送出", "ai.intro": "唯讀助手：只能讀設定資料夾裡的檔案，不能改檔、不能執行指令，也讀不到 .env 和金鑰檔。按 <kbd>Enter</kbd> 送出，<kbd>Shift</kbd>+<kbd>Enter</kbd> 換行。",
@@ -106,13 +109,14 @@ const I18N = {
     "hk.next": "講稿下一節（不用切到面板）", "hk.prev": "講稿上一節（不用切到面板）",
     "hk.popups": "自動跟隨彈窗：開／關", "hk.clip": "滑鼠鎖在講者螢幕：開／關",
     "hk.quit": "結束投影（面板留著）",
+    "hk.region": "區域模式：投影視窗所在的螢幕範圍（含選單、對話框）／切回只投視窗",
     "pk.section": "上一節／下一節", "pk.step": "這一節的上一步／下一步（沒有步驟時：捲動）",
     "pk.home": "回到第一節", "pk.keys": "開／關這張快捷鍵表", "pk.reload": "重新載入面板（改了講稿或設定後）",
     "fold.preview": "投影畫面", "fold.source": "投影來源", "fold.timer": "計時", "fold.nav": "講稿與章節",
     "fold.chat": "對話", "preview.alt": "觀眾現在在投影上看到的畫面",
     "preview.ageS": "{n} 秒前", "preview.ageM": "{n} 分鐘前", "preview.offline": "mirror 未連線",
     "preview.off": "預覽已關閉", "preview.none": "還沒有畫面",
-    "preview.old": "超過 {n} 秒沒有更新", "preview.frozen": "凍結", "preview.blank": "請稍候",
+    "preview.old": "超過 {n} 秒沒有更新", "preview.frozen": "凍結", "preview.blank": "請稍候", "preview.region": "區域",
     "preview.focusTip": "點一下（或按 Enter）：把正在投影的視窗帶到前面",
     "preview.focusAria": "投影畫面：把正在投影的視窗帶到前面",
     "focus.source": "已請 mirror 把投影中的視窗帶到前面",
@@ -533,6 +537,9 @@ async function pollState() {
     const srcName = m.following_popup ? T("src.popup", { t: m.popup_title }) : (m.source_title || T("src.none", { pick: key("pick") }));
     $("#srcTitle").textContent = stale ? "—" : srcName + (m.backend && m.backend !== "-" ? `  [${m.backend}]` : "") + (m.follow_popups === false ? T("src.noPopups") : "");
     $("#srcTitle").classList.toggle("popup", !!m.following_popup);
+    const regionOn = !stale && m.capture_mode === "region";  // anything on top of the window is projected
+    $("#srcMode").hidden = !regionOn;
+    $("#srcMode").title = T("src.regionTip", { freeze: key("freeze") });
     const warn = $("#srcWarn");
     const failedNow = stale ? [] : (m.hotkeys_failed || []);
     const hkNow = !stale && m.hotkeys && typeof m.hotkeys === "object" ? m.hotkeys : null;  // older mirrors: none
@@ -545,7 +552,7 @@ async function pollState() {
     const info = !m.warning && !failed && m.notice;
     warn.className = "srcwarn small" + (info ? " info" : "");
     const sum = $("#sourceSum");  // closed block: a warning replaces the title, so it is never hidden
-    sum.textContent = w ? (info ? w : "⚠ " + w) : $("#srcTitle").textContent;
+    sum.textContent = w ? (info ? w : "⚠ " + w) : (regionOn ? `[${T("src.region")}] ` : "") + $("#srcTitle").textContent;
     sum.className = "foldsum" + (w ? (info ? " info" : " warn") : "");
     renderPreview(st);
     await handleNotesTarget(st); handleVersion(st);

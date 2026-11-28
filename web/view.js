@@ -25,12 +25,13 @@ const MIRROR_STALE_SECS = 4;       // same as panel_server.MIRROR_STALE_SECS
 //  - stale: grey the last image out (offline or old);
 //  - hide: do not show the last image at all ("off" / "none": it may be a previous run's screen);
 //  - badges: projector modes the audience sees now ("blank" wins over "frozen" on the projector,
-//    so it comes first).
+//    so it comes first; "region": region mode, everything on top of the window is projected).
 function previewStatus(st, staleSecs = PREVIEW_STALE_SECS) {
   const s = st || {}, m = s.mirror || {}, p = s.preview || {};
   const connected = typeof s.mirror_age === "number" && s.mirror_age <= MIRROR_STALE_SECS;
   const age = typeof p.age === "number" ? p.age : null;
-  const badges = connected ? [m.blank && "blank", m.frozen && "frozen"].filter(Boolean) : [];
+  const badges = connected
+    ? [m.blank && "blank", m.frozen && "frozen", m.capture_mode === "region" && "region"].filter(Boolean) : [];
   let note = null;
   if (!connected) note = "offline";
   else if (p.enabled === false) note = "off";

@@ -242,6 +242,38 @@ def test_frozen_and_blank_badges_in_the_preview_and_the_closed_summary(browser, 
     pn.close()
 
 
+def test_region_mode_badge_in_the_preview_and_the_source_line(browser, env):
+    _, port, mirror = env
+    pn = Panel(browser, port)
+    assert pn.page.locator("#srcMode").is_hidden()
+    pn.head("preview").click()
+    mirror.status.update(capture_mode="region", menu_overlay=False)
+    pn.page.wait_for_selector("#previewBadges .pbadge.region", timeout=3000)
+    assert pn.page.locator("#previewBadges").inner_text().strip() == "Region"
+    assert pn.page.locator("#srcMode").is_visible() and pn.page.locator("#srcMode").inner_text() == "Region"
+    assert "F8" in pn.page.locator("#srcMode").get_attribute("title")
+    pn.head("source").click()  # closed: the summary still says region mode
+    assert pn.page.locator("#sourceSum").inner_text().startswith("[Region] ")
+    pn.head("source").click()
+    mirror.status.update(capture_mode="window", menu_overlay=True)
+    pn.page.wait_for_function("document.querySelector('#srcMode').hidden", timeout=3000)
+    assert pn.page.locator("#previewBadges .pbadge").count() == 0
+    mirror.status.update(capture_mode="region")
+    pn.page.wait_for_function("!document.querySelector('#srcMode').hidden", timeout=3000)
+    mirror.connected = False  # a stale status is not a mode
+    pn.page.wait_for_function("document.querySelector('#srcMode').hidden", timeout=8000)
+    pn.close()
+
+
+def test_region_hotkey_is_listed_in_the_shortcut_overlay(browser, env):
+    _, port, _ = env
+    pn = Panel(browser, port)
+    pn.page.keyboard.press("?")
+    row = pn.page.locator("#keysGlobal tr", has_text="Region mode")
+    assert row.count() == 1 and "Ctrl+Alt+R" in "".join(row.inner_text().split())
+    pn.close()
+
+
 def test_zh_tw_labels(browser, tmp_path):
     app, srv, mirror = make_env(tmp_path, lang="zh-TW")
     try:
@@ -252,6 +284,10 @@ def test_zh_tw_labels(browser, tmp_path):
         pn.page.wait_for_selector("#previewBadges .pbadge.frozen", timeout=3000)
         assert pn.page.locator("#previewBadges").inner_text().split() == ["請稍候", "凍結"]
         assert "秒前" in pn.page.locator("#previewAge").inner_text()
+        mirror.status.update(capture_mode="region")
+        pn.page.wait_for_selector("#previewBadges .pbadge.region", timeout=3000)
+        assert pn.page.locator("#previewBadges").inner_text().split() == ["請稍候", "凍結", "區域"]
+        assert pn.page.locator("#srcMode").inner_text() == "區域"
         pn.close()
     finally:
         mirror.stop = True

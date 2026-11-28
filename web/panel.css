@@ -217,6 +217,8 @@ main, .tab, .md, .chat, .msg, header, .stageinfo, .docbar, .secnav, .stepnav, .s
 .pbadge { font-size: 0.62em; font-weight: 700; padding: 0 7px; border-radius: 99px; border: 1px solid; }
 .pbadge.frozen { background: #3a2a07; color: var(--warn); }
 .pbadge.blank { background: #3a1212; color: #ff8a80; }
+.pbadge.region, .srcmode { background: #10283f; color: #8cc8ff; border-color: currentColor; }
+.srcmode { font-size: 0.85em; font-weight: 700; padding: 0 6px; margin-right: 5px; border: 1px solid; border-radius: 99px; }
 .previewmeta { display: flex; align-items: center; gap: 6px; min-width: 0; margin-bottom: 2px; }
 #previewNote { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .previewmeta.stale #previewNote { color: var(--warn); }

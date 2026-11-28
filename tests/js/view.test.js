@@ -63,6 +63,14 @@ test("badges follow the projector mode: blank first (it covers a frozen frame)",
   assert.deepEqual(previewStatus(st(9, pv, { blank: true })).badges, []);  // stale status says nothing
 });
 
+test("region mode is a badge too (anything on top of the window is projected); window mode is not", () => {
+  const pv = { available: true, enabled: true, age: 1 };
+  assert.deepEqual(previewStatus(st(1, pv, { capture_mode: "region" })).badges, ["region"]);
+  assert.deepEqual(previewStatus(st(1, pv, { capture_mode: "region", frozen: true })).badges, ["frozen", "region"]);
+  assert.deepEqual(previewStatus(st(1, pv, { capture_mode: "window" })).badges, []);
+  assert.deepEqual(previewStatus(st(9, pv, { capture_mode: "region" })).badges, []);
+});
+
 test("age in seconds, then minutes", () => {
   assert.deepEqual(ageParts(0), { n: 0, unit: "s" });
   assert.deepEqual(ageParts(3.4), { n: 3, unit: "s" });

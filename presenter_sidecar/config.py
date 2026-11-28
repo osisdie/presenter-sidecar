@@ -9,6 +9,8 @@ import copy
 import json
 from pathlib import Path
 
+from .overlay import DEFAULT_MENU_CLASSES
+
 ROOT = Path(__file__).resolve().parent.parent
 
 DEFAULT_HOTKEYS = {
@@ -19,6 +21,8 @@ DEFAULT_HOTKEYS = {
     "style": "F10",
     "popups": "Ctrl+Alt+P",
     "clip": "Ctrl+Alt+L",
+    # Region mode (capture the screen rectangle). Not F11: that is the browser's full-screen key.
+    "region": "Ctrl+Alt+R",
     "next": "Ctrl+Alt+PgDn",
     "prev": "Ctrl+Alt+PgUp",
     "quit": "Ctrl+Alt+Q",
@@ -46,6 +50,15 @@ DEFAULTS: dict = {
     "capture_backend": "auto",
     "follow_popups": True,
     "popup_min_size": [320, 240],
+    # Paste menus and other popups (separate windows) over the projected window (presenter_sidecar.overlay).
+    "menu_overlay": True,
+    "menu_overlay_classes": list(DEFAULT_MENU_CLASSES),
+    "menu_overlay_heuristic": False,
+    "menu_overlay_margin": 8,
+    "menu_overlay_max_size": [1600, 1400],
+    "menu_overlay_interval_sec": 0.1,
+    # Start in region mode (screen copy of the window's rectangle) instead of window capture.
+    "region_mode": False,
     "fps": 25,
     "smooth_scale": True,
     # Panel preview of the projector (logs/mirror.preview.jpg): seconds between samples, 0 = off.
