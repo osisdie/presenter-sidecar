@@ -31,8 +31,10 @@ if (Test-Panel) {
     Write-Host "Panel server already running: $base"
     if ($SessionProfile) {
         try {
+            # Bytes, not a string: Windows PowerShell 5.1 sends a string body as ISO-8859-1: a Chinese name would arrive as "??". Keep this file ASCII (no BOM).
+            $json = @{ name = $SessionProfile } | ConvertTo-Json -Compress
             Invoke-RestMethod -Method Post -Uri "$base/api/profile" -Headers @{ 'X-Panel' = '1' } `
-                -ContentType 'application/json' -Body (@{ name = $SessionProfile } | ConvertTo-Json) | Out-Null
+                -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($json)) | Out-Null
             Write-Host "Asked the panel to switch to profile '$SessionProfile'"
         } catch { Write-Warning "Profile '$SessionProfile' not switched: $($_.Exception.Message)" }
     }
@@ -46,7 +48,8 @@ if (Test-Panel) {
         }
         $wslArgs = @()
         if ($cfg.wsl_distro) { $wslArgs += @('-d', $cfg.wsl_distro) }
-        $profArg = if ($SessionProfile) { " --profile '" + ($SessionProfile -replace "'", "") + "'" } else { '' }
+        # Quotes are stripped as in the Windows branch below: the name sits inside '...' inside "..." here.
+        $profArg = if ($SessionProfile) { " --profile '" + ($SessionProfile -replace "['""]", "") + "'" } else { '' }
         $cmd = "cd '$wslHere' && mkdir -p logs && exec python3 panel_server.py$profArg >> logs/panel_server.log 2>&1"
         Write-Host "Starting panel server in WSL..."
         Start-Process -WindowStyle Hidden -FilePath 'wsl.exe' -ArgumentList ($wslArgs + @('--', 'bash', '-lc', "`"$cmd`""))

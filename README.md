@@ -259,7 +259,9 @@ bar, the notes and the follow rules always belong to the same profile, so a meet
 under a course's timer.
 
 - The top-level `notes_files`, `pacing_file` / `pacing_notes` and `notes_rules` are the first profile,
-  named `profile_name` (a config from before 0.3.0 is simply one profile). Add more under `profiles`:
+  named `profile_name` (a config from before 0.3.0 is simply one profile). Add more under `profiles`.
+  If the top-level `notes_files` is empty while `profiles` has entries, that first profile is left out
+  (the server log says so); profiles without a name and repeated names are skipped the same way.
 
   ```json
   "profile_name": "talk",
@@ -271,10 +273,12 @@ under a course's timer.
   ]
   ```
 - **Pacing from the notes** (`pacing_notes`, used when `pacing_file` is empty): every `##` section with a
-  line like `Suggested time: ~15 min` or `建議時間：約 15 分鐘` is a timer section, in order (bold, `約`,
-  `~` and ranges like `10–15` are fine; the first number counts). `Part 2: Board walk` becomes the button
-  `Part 2`. Sections without such a line (an appendix) are not timed. See
-  [`examples/notes/meeting.md`](examples/notes/meeting.md).
+  line that *starts* with `Suggested time:` or `建議時間：` is a timer section, in order. A list bullet,
+  bold, `約` / `about` / `~` and ranges (`10–15`: the first number counts) are fine, and so are hours:
+  `~15 min`, `約 15 分鐘`, `1.5 hours`, `1 小時 30 分`. The phrase in the middle of a sentence, in a `>` quote
+  or a code block does not count, and a time of 0 is no section. `Part 2: Board walk` becomes the button
+  `Part 2`; a heading used twice keeps two timers. Sections without such a line (an appendix) are not
+  timed. See [`examples/notes/meeting.md`](examples/notes/meeting.md).
 - **Switching**: the chip at the end of the Notes / AI helper tabs (shown with 2+ profiles). Notes list,
   stage bar and follow rules change together. Each profile keeps its own timer, open notes file and
   place, so switching back finds the other timer still running.
@@ -290,10 +294,12 @@ under a course's timer.
   call "%~dp0start.bat" -Profile meeting
   ```
 
-  If the panel server is already running, `-Profile` asks the open panel to switch once. After that,
-  F5 keeps whatever profile you picked by hand.
-- Adding or renaming profiles in `config.json`: press F5 in the panel. Their notes, pacing and rules
-  reload live like before.
+  If the panel server is already running, `-Profile` asks every open panel window to switch once. After
+  that, F5 (and a restart of the server without `-Profile`) keeps whatever profile you picked by hand.
+  In a `.bat` file prefer ASCII profile names: a Chinese name there needs the file saved as UTF-8 and
+  `chcp 65001 >nul` before the `call`.
+- Profiles added, renamed or removed in `config.json` show up in the chip by themselves (no F5), and
+  their notes, pacing and rules reload live like before.
 
 ## Try auto-follow with the demo site
 
@@ -322,7 +328,8 @@ Self-test pages for the mirror itself are in [`web/selftest/`](web/selftest/READ
 
 `config.example.json` is the only config in the repository; your `config.json` is gitignored.
 Keys starting with `_` are comments. Coordinates are physical pixels. Restart after changes,
-except `notes_files`, `pacing_file` and `notes_rules`, which reload live (press F5 in the panel for files).
+except `notes_files`, `pacing_file`, `pacing_notes`, `notes_rules`, `profile_name`, `profiles` and
+`profile_auto_switch`, which reload live (press F5 in the panel for a changed list of notes files).
 
 | Key | Default | Meaning |
 |---|---|---|

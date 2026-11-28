@@ -227,7 +227,8 @@ py -m venv .venv
 永遠屬於同一個情境，所以不會出現「上面是課程計時、下面是會議講稿」對不上的情況。
 
 - 最上層的 `notes_files`、`pacing_file`／`pacing_notes`、`notes_rules` 就是第一個情境，名稱是 `profile_name`
-  （0.3.0 以前的設定檔就是只有一個情境）。其他情境加在 `profiles`：
+  （0.3.0 以前的設定檔就是只有一個情境）。其他情境加在 `profiles`。如果最上層的 `notes_files` 是空的、
+  `profiles` 又有內容，第一個情境就會被略過（伺服器記錄會寫出來）；沒有名稱或名稱重複的情境也一樣會被略過。
 
   ```json
   "profile_name": "talk",
@@ -238,10 +239,11 @@ py -m venv .venv
       "notes_rules": [{ "title_contains": "Sprint board", "section_heading_contains": "Board walk" }] }
   ]
   ```
-- **用講稿當計時**（`pacing_notes`，`pacing_file` 空白時使用）：每個 `##` 段落裡有一行
-  `建議時間：約 15 分鐘` 或 `Suggested time: ~15 min`，就是一個計時段落，依序排列（可以加粗、寫「約」、`~`，
-  或寫 `10–15` 這種範圍，取第一個數字）。`Part 2: Board walk` 的按鈕會顯示 `Part 2`。沒有這一行的段落
-  （例如附錄）不計時。範例見 [`examples/notes/meeting.md`](examples/notes/meeting.md)。
+- **用講稿當計時**（`pacing_notes`，`pacing_file` 空白時使用）：每個 `##` 段落裡有一行**開頭就是**
+  `建議時間：` 或 `Suggested time:`，就是一個計時段落，依序排列。前面可以有清單符號，可以加粗、寫「約」、`~`，
+  或寫 `10–15` 這種範圍（取第一個數字），也可以用小時：`約 15 分鐘`、`~15 min`、`1.5 小時`、`1 小時 30 分`。
+  寫在句子中間、`>` 引言或程式碼區塊裡的不算，時間是 0 也不算。`Part 2: Board walk` 的按鈕會顯示 `Part 2`；
+  同一個標題出現兩次會有兩個計時。沒有這一行的段落（例如附錄）不計時。範例見 [`examples/notes/meeting.md`](examples/notes/meeting.md)。
 - **切換**：講稿／AI 助手分頁列最右邊的小選單（有兩個以上情境才顯示）。講稿清單、段落計時和跟隨規則一起換。
   每個情境各自保留計時、開著的講稿檔和位置，切回來時另一個情境的計時還在繼續跑。
 - **跨情境自動跟隨**（`profile_auto_switch`，預設開）：先比對目前情境的規則；都不符合時才比對其他情境，
@@ -254,8 +256,10 @@ py -m venv .venv
   call "%~dp0start.bat" -Profile meeting
   ```
 
-  面板伺服器已經在跑時，`-Profile` 會請開著的面板切換一次；之後按 F5 會保留你手動選的情境。
-- 在 `config.json` 新增或改名情境後，在面板按 F5。情境裡的講稿、計時和規則一樣存檔即生效。
+  面板伺服器已經在跑時，`-Profile` 會請每個開著的面板視窗切換一次；之後按 F5（或不帶 `-Profile` 重開伺服器）
+  都會保留你手動選的情境。`.bat` 裡的情境名稱建議用英文：用中文名稱時，檔案要存成 UTF-8，並在 `call` 前加
+  `chcp 65001 >nul`。
+- 在 `config.json` 新增、改名或刪除情境，小選單會自己更新（不用按 F5）；情境裡的講稿、計時和規則一樣存檔即生效。
 
 ## 用範例網站試講稿自動跟隨
 
@@ -282,7 +286,8 @@ py -m venv .venv
 ## 設定
 
 repo 裡只有 `config.example.json`；你自己的 `config.json` 不進版控。以 `_` 開頭的鍵是註解。
-座標一律是實體像素。改完要重新啟動；`notes_files`、`pacing_file`、`notes_rules` 例外，存檔即生效（講稿檔清單要在面板按 F5）。
+座標一律是實體像素。改完要重新啟動；`notes_files`、`pacing_file`、`pacing_notes`、`notes_rules`、`profile_name`、
+`profiles`、`profile_auto_switch` 例外，存檔即生效（講稿檔清單改了要在面板按 F5）。
 
 | 鍵 | 預設 | 說明 |
 |---|---|---|

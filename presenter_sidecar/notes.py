@@ -261,11 +261,28 @@ def step_label(title: str, index: int, total: int, lang: str = "en") -> str:
 
 # ---------------------------------------------------------------- pacing derived from a notes file
 # A notes file can be its own pacing: every ``## `` section that states a suggested time is a stage.
-# ``建議時間：約 8 分鐘`` / ``Suggested time: ~8 min`` (bold, ``約``, ``~`` optional; the first number counts).
-SUGGESTED_TIME = re.compile(
-    r"(?:建議時間\s*[:：]?\s*(?:約|大約)?\s*(\d+)\s*(?:[-–~～至到]\s*\d+\s*)?分"
-    r"|suggested\s+time\s*[:：]?\s*(?:about|approx\.?|~|≈)?\s*(\d+)\s*(?:[-–~]\s*\d+\s*)?min)",
-    re.I)
+# The marker must START a line (after an optional list bullet; bold / italic / code marks are ignored):
+# ``建議時間：約 8 分鐘``, ``- **Suggested time**: ~1.5 hours``, ``建議時間：1 小時 30 分``. A range counts its
+# first number (``10–15 分鐘`` → 10); a time of 0 is not a stage. Prose that merely mentions it does not count.
+_TIME_MARK = re.compile(r"^\s*(?:建議時間|suggested\s+time)\s*[:：]?\s*(?:約|大約|about|approx\.?|~|≈|～)?\s*", re.I)
+_MIN_UNIT = r"(?:分鐘|分|minutes?|mins?|m)(?![a-z])"
+_HOUR_UNIT = r"(?:小時|鐘頭|hours?|hrs?|h)(?![a-z])"
+_AMOUNT = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(?:[-–~～至到]\s*\d+(?:\.\d+)?\s*)?"
+    rf"(?:(?P<h>{_HOUR_UNIT})(?:\s*(?P<extra>\d+)\s*{_MIN_UNIT})?|{_MIN_UNIT})", re.I)
+
+
+def suggested_minutes(line: str) -> float | None:
+    """Minutes from one suggested-time line, or None when the line is not one (or says 0)."""
+    s = re.sub(r"^\s*[-*+]\s+", "", line)           # list bullet first: "*" is also bold
+    s = re.sub(r"[*_`]", "", s)
+    m = _TIME_MARK.match(s)
+    a = _AMOUNT.match(s[m.end():]) if m else None
+    if not a:
+        return None
+    n = float(a.group(1)) * (60 if a.group("h") else 1) + float(a.group("extra") or 0)
+    n = round(n, 2)
+    return (int(n) if n == int(n) else n) if n > 0 else None
 
 
 STAGE_PREFIX = re.compile(
@@ -283,32 +300,47 @@ def stage_label(heading: str) -> tuple[str, str]:
 def pacing_from_notes(markdown: str) -> list[dict]:
     """Stages from a notes file: each ``##`` section with a suggested-time line, in order.
 
-    ``short`` / ``title`` come from :func:`stage_label`, so the stage matches its own section in the panel. Sections without a time line
-    (the ``#`` title section, an appendix) are not stages.
+    ``short`` / ``title`` come from :func:`stage_label`. ``heading`` (the ``##`` text as written) and ``nth``
+    (its occurrence, for repeated headings) tie each stage to its own section: see :func:`stage_for_section`.
+    Sections without a time line (the ``#`` title section, an appendix) are not stages.
     """
     stages: list[dict] = []
-    heading, body, fence = None, [], False
+    seen: dict[str, int] = {}
+    heading, raw, minutes, fence = None, "", None, False
 
     def flush():
-        if heading is None:
-            return
-        m = SUGGESTED_TIME.search(re.sub(r"[*_`]", "", "\n".join(body)))
-        if not m:
+        if heading is None or minutes is None:
             return
         short, title = stage_label(heading)
         key, n = short, 2
         while any(s["key"] == key for s in stages):  # duplicate short names stay separate timers
             key, n = f"{short} ({n})", n + 1
-        stages.append({"key": key, "short": short, "title": title, "offset": "",
-                       "minutes": int(m.group(1) or m.group(2)), "detail": ""})
+        stages.append({"key": key, "short": short, "title": title, "offset": "", "minutes": minutes,
+                       "detail": "", "heading": raw, "nth": seen[raw]})
 
     for ln in markdown.replace("\r", "").split("\n"):
         if ln.startswith("```"):
             fence = not fence
-        if not fence and ln.startswith("## "):
+            continue
+        if fence:
+            continue
+        if ln.startswith("## "):
             flush()
-            heading, body = _plain(ln[3:]), []
-        elif heading is not None:
-            body.append(ln)
+            raw = ln[3:].strip()
+            seen[raw] = seen.get(raw, 0) + 1
+            heading, minutes = _plain(raw), None
+        elif heading is not None and minutes is None:
+            minutes = suggested_minutes(ln)
     flush()
     return stages
+
+
+def stage_for_section(stages: list[dict], heading: str, nth: int = 1) -> int:
+    """The stage of a notes section: the stage made from exactly this section (``heading`` + ``nth``,
+    pacing from notes, so repeated headings map to their own stage), else :func:`stage_for_heading`.
+    Same rule as ``stageIndex`` in web/view.js."""
+    h = heading.strip()
+    for i, s in enumerate(stages):
+        if s.get("heading") == h and s.get("nth", 1) == nth:
+            return i
+    return stage_for_heading(stages, h)

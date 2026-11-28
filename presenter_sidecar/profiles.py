@@ -29,12 +29,21 @@ def _profile(name: str, src: dict) -> dict:
     return p
 
 
+def _extra(cfg: dict) -> list:
+    raw = cfg.get("profiles")
+    return raw if isinstance(raw, list) else []
+
+
+def _top_name(cfg: dict) -> str:
+    return str(cfg.get("profile_name") or "default").strip() or "default"
+
+
 def profiles(cfg: dict) -> list[dict]:
     """All profiles in order, normalised (missing keys empty). Names are unique; later duplicates
-    and entries without a name are skipped."""
+    and entries without a name are skipped (:func:`profile_warnings` says so)."""
     out: list[dict] = []
-    top_name = str(cfg.get("profile_name") or "default").strip() or "default"
-    extra = [p for p in (cfg.get("profiles") or []) if isinstance(p, dict)]
+    top_name = _top_name(cfg)
+    extra = [p for p in _extra(cfg) if isinstance(p, dict)]
     top = _profile(top_name, cfg)
     if top["notes_files"] or not extra:
         out.append(top)
@@ -56,3 +65,31 @@ def startup_profile(profs: list[dict], *requested: str | None) -> str:
         if name and find(profs, name.strip()):
             return name.strip()
     return profs[0]["name"] if profs else "default"
+
+
+def profile_warnings(cfg: dict) -> list[str]:
+    """What :func:`profiles` left out or ignored, for the server log."""
+    out: list[str] = []
+    raw = cfg.get("profiles")
+    if raw not in (None, []) and not isinstance(raw, list):
+        out.append("'profiles' must be a list of objects: ignored")
+    extra = _extra(cfg)
+    if any(not isinstance(p, dict) for p in extra):
+        out.append("'profiles' entries that are not objects are skipped")
+    entries = [p for p in extra if isinstance(p, dict)]
+    top = _top_name(cfg)
+    if entries and not _profile(top, cfg)["notes_files"]:
+        out.append(f"the top-level notes_files is empty, so profile {top!r} is left out "
+                   f"(add notes_files to keep it)")
+        names = []
+    else:
+        names = [top]
+    for p in entries:
+        name = str(p.get("name") or "").strip()
+        if not name:
+            out.append("a profile without a name is skipped")
+        elif name in names:
+            out.append(f"duplicate profile name {name!r}: only the first is used")
+        else:
+            names.append(name)
+    return out

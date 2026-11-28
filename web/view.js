@@ -46,13 +46,14 @@ function ageParts(secs) {
 }
 
 // Profiles. names: from /api/config; saved: the profile last shown in this panel; req: the server's
-// startup request { name, id } (--profile / PRESENTER_PROFILE / start.ps1 -Profile); seen: the last
-// request id this panel obeyed. A new request wins once (a new start, or start.ps1 -Profile while the
-// server runs); after that, F5 keeps the profile you picked by hand. Returns { name, seen, requested }.
+// startup profile { name, id }. id is set only for an explicit request (--profile / PRESENTER_PROFILE /
+// start.ps1 -Profile); seen: the last request id this panel obeyed. An explicit request wins once per
+// panel; after that, F5 (and a plain server restart: no id) keeps the profile you picked by hand.
+// Returns { name, seen, requested }.
 function pickProfile(names, saved, req, seen) {
   const ok = (n) => typeof n === "string" && names.includes(n);
-  if (req && req.id !== seen && ok(req.name)) return { name: req.name, seen: req.id, requested: true };
-  const next = req ? req.id : seen;
+  if (req && req.id && req.id !== seen && ok(req.name)) return { name: req.name, seen: req.id, requested: true };
+  const next = req && req.id ? req.id : seen;
   if (ok(saved)) return { name: saved, seen: next, requested: false };
   return { name: req && ok(req.name) ? req.name : names[0] ?? "", seen: next, requested: false };
 }
@@ -60,10 +61,21 @@ function pickProfile(names, saved, req, seen) {
 // for the first profile, so a config without profiles keeps its running timer and open file.
 function profileKey(base, profile) { return `${base}@${profile}`; }
 function profileFallback(base, profile, names) { return profile === names[0] ? base : null; }
+// The timer section of a notes section: the stage made from exactly this section (pacing_notes: same
+// heading and occurrence nth, so repeated headings keep their own timer), else the longest stage short
+// name found in the heading (pacing_file). Same rule as presenter_sidecar.notes.stage_for_section.
+function stageIndex(stages, title, nth = 1) {
+  const t = String(title).trim();
+  const exact = stages.findIndex((s) => s.heading === t && (s.nth ?? 1) === nth);
+  if (exact >= 0) return exact;
+  const h = t.toLowerCase(); let best = -1, len = 0;
+  stages.forEach((s, i) => { const n = s.short.toLowerCase(); if (n && h.includes(n) && n.length > len) { best = i; len = n.length; } });
+  return best;
+}
 // Auto-follow target identity: the same section name in another profile is another target.
 function targetKey(nt) { return nt && nt.key ? `${nt.profile ?? ""}\u0001${nt.key}` : null; }
 
 if (typeof module !== "undefined") {
   module.exports = { FOLD_DEFAULTS, foldOpen, PREVIEW_REFRESH_MS, PREVIEW_STALE_SECS, MIRROR_STALE_SECS,
-    previewStatus, ageParts, pickProfile, profileKey, profileFallback, targetKey };
+    previewStatus, ageParts, pickProfile, profileKey, profileFallback, targetKey, stageIndex };
 }

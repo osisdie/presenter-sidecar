@@ -4,7 +4,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { FOLD_DEFAULTS, foldOpen, PREVIEW_STALE_SECS, previewStatus, ageParts, pickProfile, profileKey, profileFallback,
-  targetKey } = require("../../web/view.js");
+  targetKey, stageIndex } = require("../../web/view.js");
 
 test("fold defaults: preview closed, notes and everything else open", () => {
   assert.equal(foldOpen("preview", null), false);
@@ -100,4 +100,19 @@ test("auto-follow target key includes the profile", () => {
   assert.equal(targetKey({ key: null, profile: "talk" }), null);
   assert.notEqual(targetKey({ key: "Q&A", profile: "talk" }), targetKey({ key: "Q&A", profile: "meeting" }));
   assert.equal(targetKey({ key: "Q&A" }), targetKey({ key: "Q&A", profile: "" }));
+});
+
+test("profile: no request id (plain server start or restart) never overrides the saved profile", () => {
+  assert.deepEqual(pickProfile(NAMES, "meeting", { name: "talk", id: null }, "old"),
+    { name: "meeting", seen: "old", requested: false });
+  assert.equal(pickProfile(NAMES, null, { name: "meeting", id: null }, null).name, "meeting");  // first open
+});
+
+test("stageIndex: a repeated heading maps to its own stage; pacing_file stages by short name", () => {
+  const derived = [{ key: "Q&A", short: "Q&A", heading: "Q&A", nth: 1 }, { key: "Q&A (2)", short: "Q&A", heading: "Q&A", nth: 2 }];
+  assert.equal(stageIndex(derived, "Q&A", 1), 0);
+  assert.equal(stageIndex(derived, " Q&A ", 2), 1);
+  const paced = [{ key: "Demo", short: "Demo" }, { key: "Demo A", short: "Demo A" }];
+  assert.equal(stageIndex(paced, "3. Demo A — code"), 1);
+  assert.equal(stageIndex(paced, "Wrap-up"), -1);
 });

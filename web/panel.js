@@ -2,10 +2,12 @@
 // Presenter panel: speaker notes + section timers + optional AI helper.
 // Talks only to panel_server.py on 127.0.0.1.
 const $ = (s) => document.querySelector(s);
-const LS = {
-  get(k, d) { try { const v = localStorage.getItem("presenter." + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
-  set(k, v) { try { localStorage.setItem("presenter." + k, JSON.stringify(v)); } catch {} },
-};
+const store = (area) => ({
+  get(k, d) { try { const v = area().getItem("presenter." + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { area().setItem("presenter." + k, JSON.stringify(v)); } catch {} },
+});
+const LS = store(() => localStorage);
+const SS = store(() => sessionStorage);  // per panel window (survives F5, not shared with other panels)
 const post = (url, body) => fetch(url, {
   method: "POST", headers: { "Content-Type": "application/json", "X-Panel": "1" }, body: JSON.stringify(body || {}),
 });
@@ -252,11 +254,10 @@ function splitSections(text) {
   if (cur.lines.join("").trim()) secs.push(cur);
   return secs.map((s) => ({ title: s.title || T("notes.opening"), text: s.lines.join("\n") }));
 }
-// Same rule as presenter_sidecar.notes.stage_for_heading: the longest pacing name found in the heading.
-function stageOfTitle(t) {
-  const h = t.toLowerCase(); let best = -1, len = 0;
-  stages.forEach((s, i) => { const n = s.short.toLowerCase(); if (n && h.includes(n) && n.length > len) { best = i; len = n.length; } });
-  return best;
+// The timer section of notes section k (stageIndex in view.js; repeated headings count by occurrence).
+function stageOfSection(k) {
+  const t = sections[k].title.trim();
+  return stageIndex(stages, t, sections.slice(0, k + 1).filter((s) => s.title.trim() === t).length);
 }
 function renderDocBar() {
   const box = $("#docs"); box.innerHTML = "";
@@ -286,7 +287,7 @@ function goSection(k, restoreStep = false) {
     const saved = restoreStep ? LS.get(stepKey(), 0) : 0;
     if (saved > 0) goStep(saved); else goStep(0, false);  // new section: step 1, scrolled to the top
   }
-  viewStage = stageOfTitle(sections[secIdx].title);
+  viewStage = stageOfSection(secIdx);
   post("/api/panel", { profile, doc: docs[docIdx].name, section: sections[secIdx].title, index: `${secIdx + 1}/${sections.length}`, follow: notesFollow }).catch(() => {});
   const hint = $("#stageHint");
   if (viewStage >= 0 && viewStage !== timer.cur) {
@@ -502,6 +503,7 @@ async function pollState() {
   try {
     const st = await (await fetch("/api/state?profile=" + encodeURIComponent(profile))).json();
     if (await handleProfileRequest(st.profile_req)) return;
+    syncProfileNames(st.profiles);
     const pill = $("#mirror"), m = st.mirror || {};
     const stale = st.mirror_age == null || st.mirror_age > 4;
     pill.className = "pill";
@@ -534,6 +536,9 @@ async function pollState() {
     await handleNotesTarget(st); handleVersion(st);
     const cmds = st.cmds || [];
     if (lastCmdSeq == null) lastCmdSeq = cmds.length ? cmds[cmds.length - 1].seq : 0;
+    if (dropCmds) {  // Ctrl+Alt+PgUp / PgDn pressed while a profile was loading: not for the new notes
+      dropCmds = false; if (cmds.length) lastCmdSeq = Math.max(lastCmdSeq, cmds[cmds.length - 1].seq);
+    }
     for (const c of cmds) if (c.seq > lastCmdSeq) {
       lastCmdSeq = c.seq;
       if (c.nav) { showTab("notes"); goSection(secIdx + c.nav); }
@@ -591,7 +596,7 @@ document.addEventListener("visibilitychange", previewTick);
 // ------------------------------------------------------------ profiles
 // A profile = notes files + timer sections (pacing) + auto-follow rules; switching changes all three.
 // The chip in the header is shown when the config has more than one.
-let profile = "", profileNames = [], switching = null;
+let profile = "", profileNames = [], switching = null, dropCmds = false;
 function renderProfileSel() {
   const sel = $("#profileSel");
   sel.innerHTML = profileNames.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
@@ -599,9 +604,10 @@ function renderProfileSel() {
 }
 async function loadProfile(name) {
   const run = (async () => {
-    profile = name; LS.set("profile", name); renderProfileSel();
     const q = "?profile=" + encodeURIComponent(name);
     const [pac, nts] = await Promise.all([fetch("/api/pacing" + q).then((r) => r.json()), fetch("/api/notes" + q).then((r) => r.json())]);
+    // Only now: until both arrived, the old profile's timer and open file must keep saving under its own name.
+    profile = name; LS.set("profile", name); renderProfileSel(); dropCmds = true;
     stages = pac.stages || [];
     const old = profileFallback("timer", name, profileNames);
     timer = LS.get(profileKey("timer", name), old ? LS.get(old, freshTimer()) : freshTimer());
@@ -614,16 +620,23 @@ async function loadProfile(name) {
   switching = run;
   try { await run; } finally { if (switching === run) switching = null; }
 }
-// Startup request from the server (--profile, PRESENTER_PROFILE, start.ps1 -Profile): obeyed once per id.
+// Explicit startup request from the server (--profile, PRESENTER_PROFILE, start.ps1 -Profile): obeyed once
+// per id by each panel window (the id seen is kept in sessionStorage, so F5 does not obey it again).
 async function handleProfileRequest(req) {
-  if (!req || req.id === LS.get("profileReq", null)) return false;
-  const pick = pickProfile(profileNames, profile, req, LS.get("profileReq", null));
-  LS.set("profileReq", pick.seen);
+  if (!req || !req.id || req.id === SS.get("profileReq", null)) return false;
+  const pick = pickProfile(profileNames, profile, req, SS.get("profileReq", null));
+  SS.set("profileReq", pick.seen);
   if (pick.name === profile) return false;
   await loadProfile(pick.name); toast(T("profile.now", { p: pick.name }));
   return true;
 }
 $("#profileSel").onchange = async (e) => { e.target.blur(); await loadProfile(e.target.value); };
+// Profiles added, renamed or removed in config.json show up without F5; a removed active one falls back.
+function syncProfileNames(names) {
+  if (!Array.isArray(names) || !names.length || names.join("\u0001") === profileNames.join("\u0001")) return;
+  profileNames = names;
+  if (!names.includes(profile)) loadProfile(names[0]); else renderProfileSel();
+}
 
 // ------------------------------------------------------------ AI helper (optional, read-only)
 const chat = $("#chat");
@@ -689,8 +702,8 @@ $("#btnNew").onclick = async () => { await post("/api/reset"); chat.querySelecto
   try { CONF = await (await fetch("/api/config")).json(); LANG = I18N[CONF.ui_lang] ? CONF.ui_lang : "en"; } catch {}
   applyI18n(); renderKeys();
   profileNames = Array.isArray(CONF.profiles) && CONF.profiles.length ? CONF.profiles : ["default"];
-  const pick = pickProfile(profileNames, LS.get("profile", null), CONF.profile_req, LS.get("profileReq", null));
-  LS.set("profileReq", pick.seen);
+  const pick = pickProfile(profileNames, LS.get("profile", null), CONF.profile_req, SS.get("profileReq", null));
+  SS.set("profileReq", pick.seen);
   try { await loadProfile(pick.name); } catch (e) { $("#note").textContent = T("notes.cannotRead") + e; }
   renderStages(); tick(); pollState(); showTab(LS.get("tab", "notes"));
 })();

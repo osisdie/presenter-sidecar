@@ -41,7 +41,7 @@ from presenter_sidecar.config import ROOT, config_path, content_root, load_confi
 from presenter_sidecar.i18n import t
 from presenter_sidecar.notes import (choose_active_tab, clean_title, notes_target, pacing_from_notes, parse_pacing,
                                      projected_title)
-from presenter_sidecar.profiles import find as find_profile, profiles, startup_profile
+from presenter_sidecar.profiles import find as find_profile, profile_warnings, profiles, startup_profile
 from presenter_sidecar.preview import PREVIEW_FILE
 
 WEB = ROOT / "web"
@@ -154,6 +154,7 @@ class App:
             try:
                 self.cfg = load_config(self.cfg_path, self.root)
                 self.cfg_mtime = mt
+                self.warn_profiles()
             except (OSError, ValueError):
                 pass
         return self.cfg
@@ -179,8 +180,16 @@ class App:
         return find_profile(profs, name) or find_profile(profs, self.profile_request()["name"]) or profs[0]
 
     def profile_request(self) -> dict:
-        name = startup_profile(self.profiles(), self.profile_asked, self.cfg.get("profile"))
-        return {"name": name, "id": f"{self.boot}-{self.profile_req_n}"}
+        """``id`` only for an explicit request (``--profile`` / ``PRESENTER_PROFILE`` naming a real profile,
+        or ``POST /api/profile``): a plain server restart must not override a profile picked by hand."""
+        profs = self.profiles()
+        name = startup_profile(profs, self.profile_asked, self.cfg.get("profile"))
+        explicit = self.profile_req_n > 0 or find_profile(profs, self.profile_asked.strip()) is not None
+        return {"name": name, "id": f"{self.boot}-{self.profile_req_n}" if explicit else None}
+
+    def warn_profiles(self) -> None:
+        for w in profile_warnings(self.cfg):
+            print(f"warning: {w}", flush=True)
 
     # ---- notes (the file list and pacing file reload live too: no restart after adding a notes file)
     def read_notes(self, profile: str | None = None) -> list[dict]:
@@ -367,6 +376,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"mirror": mirror, "mirror_age": age, "cmds": cmds, "busy": busy, "session": sess,
                                "notes_target": app.notes_target(mirror, age, prof),
                                "profile_req": app.profile_request(),
+                               "profiles": [p["name"] for p in app.profiles()],
                                "notes_auto_follow_default": bool(cfg.get("notes_auto_follow", True)),
                                "web_version": app.web_version(), "panel": panel,
                                "preview": app.preview_state(mirror, age)})
@@ -601,6 +611,7 @@ def main(argv: list[str] | None = None) -> None:
         app.session_id = SESSION_FILE.read_text().strip() or None
     print(f"panel server {__version__} on http://{host}:{srv.server_address[1]}  config={app.cfg_path.name}  "
           f"ai_helper={'on' if app.ai.get('enabled') else 'off'}  profile={app.profile_request()['name']}", flush=True)
+    app.warn_profiles()
     if app.profile_asked and app.profile_asked != app.profile_request()["name"]:
         print(f"warning: no profile named {app.profile_asked!r}; profiles: "
               f"{', '.join(p['name'] for p in app.profiles())}", flush=True)

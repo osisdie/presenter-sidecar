@@ -518,3 +518,42 @@ def test_single_profile_config_hides_the_chip_and_keeps_the_0_2_timer(browser, e
     assert page.evaluate("profile") == "default"
     ctx.close()
     assert not errors
+
+
+def test_server_restart_without_a_request_keeps_the_hand_picked_profile(browser, env):
+    app, port, _ = env  # no --profile: the request has no id
+    pn = Panel(browser, port)
+    switch_profile(pn, "meeting")
+    app.boot = "restarted"  # what a plain restart changes
+    pn.reload()
+    pn.page.wait_for_timeout(1000)
+    assert pn.page.evaluate("profile") == "meeting"
+    pn.close()
+
+
+def test_a_profile_added_to_the_config_appears_without_f5(browser, env):
+    app, port, _ = env
+    pn = Panel(browser, port)
+    cfg = json.loads(app.cfg_path.read_text(encoding="utf-8"))
+    cfg["profiles"].append({"name": "會議", "notes_files": ["examples/notes/checklist.md"]})
+    app.cfg_path.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
+    st = app.cfg_path.stat()
+    os.utime(app.cfg_path, (st.st_atime, st.st_mtime + 5))
+    pn.page.wait_for_function("profileNames.includes('會議')", timeout=4000)
+    switch_profile(pn, "會議")
+    assert pn.page.evaluate(DOCS) == ["checklist"]
+    pn.close()
+
+
+def test_every_open_panel_obeys_a_profile_request(browser, env_factory):
+    _, port, _ = env_factory()
+    ctx = browser.new_context(viewport={"width": 400, "height": 900})
+    pages = [ctx.new_page(), ctx.new_page()]  # two panel windows, one shared localStorage
+    for pg in pages:
+        pg.goto(f"http://127.0.0.1:{port}/")
+        pg.wait_for_function("document.querySelector('#secSel').options.length > 0")
+    pages[0].evaluate("fetch('/api/profile', {method: 'POST', headers: {'X-Panel': '1', 'Content-Type': "
+                      "'application/json'}, body: JSON.stringify({name: 'meeting'})})")
+    for pg in pages:
+        pg.wait_for_function("profile === 'meeting' && !switching", timeout=4000)
+    ctx.close()

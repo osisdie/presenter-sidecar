@@ -1,8 +1,9 @@
 import pytest
 
 from presenter_sidecar.config import DEFAULTS, ROOT, deep_merge, load_config, resolve
-from presenter_sidecar.notes import pacing_from_notes, section_headings, stage_for_heading, stage_label
-from presenter_sidecar.profiles import find, profiles, startup_profile
+from presenter_sidecar.notes import (pacing_from_notes, section_headings, stage_for_heading, stage_for_section,
+                                     stage_label, suggested_minutes)
+from presenter_sidecar.profiles import find, profile_warnings, profiles, startup_profile
 
 RULE = {"title_contains": "Board", "section_heading_contains": "Board walk"}
 
@@ -51,9 +52,25 @@ def test_startup_profile_order():
 @pytest.mark.parametrize("line, minutes", [
     ("建議時間：約 8 分鐘", 8), ("建議時間: 8分", 8), ("**建議時間**：約 12 分鐘", 12), ("建議時間：10–15 分鐘", 10),
     ("Suggested time: ~5 min", 5), ("suggested time: about 20 minutes", 20), ("_Suggested time_: 7-9 min", 7),
+    ("- 建議時間：約 20 分鐘", 20), ("* **Suggested time**: 3 min", 3), ("  + Suggested time: 4 min", 4),
+    ("建議時間：1.5 小時", 90), ("建議時間：約 1 小時 30 分", 90), ("Suggested time: 1 hour", 60),
+    ("Suggested time: 2h", 120), ("Suggested time: 1.5 min", 1.5), ("建議時間：2 鐘頭", 120),
 ])
 def test_suggested_time_lines(line, minutes):
+    assert suggested_minutes(line) == minutes
     assert pacing_from_notes(f"## Part\n\n{line}\n")[0]["minutes"] == minutes
+
+
+@pytest.mark.parametrize("line", [
+    "We kept to the suggested time: 5 min, mostly.",       # prose: not at the start of the line
+    "> Suggested time: 5 min",                              # a quote is an aside, not the agenda
+    "Suggested time: 0 min", "建議時間：0 分鐘",            # 0: not a stage
+    "Suggested time: soon", "建議時間：彈性",
+    "Suggested time: 5 minutesish",
+])
+def test_not_a_suggested_time(line):
+    assert suggested_minutes(line) is None
+    assert pacing_from_notes(f"## Part\n\n{line}\n") == []
 
 
 def test_pacing_from_notes_stages_in_order():
@@ -66,15 +83,29 @@ def test_pacing_from_notes_stages_in_order():
     st = pacing_from_notes(md)
     assert [(s["short"], s["title"], s["minutes"]) for s in st] == [
         ("Part 0", "暖身與期待", 8), ("Demo A", "code walk", 12), ("第 2 段", "實作", 20)]
-    assert all(set(s) == {"key", "short", "title", "offset", "minutes", "detail"} for s in st)
+    assert all(set(s) == {"key", "short", "title", "offset", "minutes", "detail", "heading", "nth"} for s in st)
     # Each stage matches its own section heading in the panel (stage_for_heading / stageOfTitle).
     heads = section_headings(md)
     assert [stage_for_heading(st, h) for h in heads] == [-1, 0, 1, -1, 2]
 
 
-def test_duplicate_stage_names_get_their_own_keys():
-    st = pacing_from_notes("## Q&A\nSuggested time: 5 min\n## Q&A\nSuggested time: 5 min\n")
-    assert [s["key"] for s in st] == ["Q&A", "Q&A (2)"]
+def test_duplicate_stage_names_get_their_own_keys_and_sections():
+    md = "## Q&A\nSuggested time: 5 min\n## Break\n## Q&A\nSuggested time: 7 min\n"
+    st = pacing_from_notes(md)
+    assert [(s["key"], s["heading"], s["nth"], s["minutes"]) for s in st] == [("Q&A", "Q&A", 1, 5), ("Q&A (2)", "Q&A", 2, 7)]
+    # The second "## Q&A" section belongs to the second Q&A timer, not the first (same short name).
+    assert stage_for_section(st, "Q&A", 1) == 0 and stage_for_section(st, "Q&A", 2) == 1
+    assert stage_for_heading(st, "Q&A") == 0  # the old rule could not tell them apart
+
+
+def test_stage_for_section_falls_back_to_short_names():
+    st = [{"key": "Demo A", "short": "Demo A", "minutes": 5}]   # pacing_file stages have no heading
+    assert stage_for_section(st, "2. Demo A — code", 1) == 0 and stage_for_section(st, "Other", 1) == -1
+
+
+def test_time_lines_in_code_blocks_are_ignored():
+    assert pacing_from_notes("## Part\n```\nSuggested time: 5 min\n```\n") == []
+    assert pacing_from_notes("## A\nSuggested time: 0 min\nSuggested time: 4 min\n")[0]["minutes"] == 4
 
 
 def test_stage_label():
@@ -99,3 +130,17 @@ def test_example_meeting_profile_is_consistent():
     # Meeting rules never match a talk page and the other way round (auto-switch stays predictable).
     talk_titles = {r.get("title_contains") for r in talk["notes_rules"]}
     assert not talk_titles & {r.get("title_contains") for r in meeting["notes_rules"]}
+
+
+def test_profile_warnings():
+    assert profile_warnings(DEFAULTS) == []
+    ok = deep_merge(DEFAULTS, {"notes_files": ["a"], "profiles": [{"name": "m"}]})
+    assert profile_warnings(ok) == []
+    dropped = deep_merge(DEFAULTS, {"profiles": [{"name": "m", "notes_files": ["m.md"]}]})
+    assert any("'default' is left out" in w for w in profile_warnings(dropped))
+    messy = deep_merge(DEFAULTS, {"notes_files": ["a"], "profiles": ["x", {"notes_files": []}, {"name": "default"},
+                                                                    {"name": "m"}, {"name": "m"}]})
+    w = " | ".join(profile_warnings(messy))
+    assert "not objects" in w and "without a name" in w and "duplicate profile name 'default'" in w and "'m'" in w
+    assert "must be a list" in profile_warnings(deep_merge(DEFAULTS, {"profiles": {"name": "m"}}))[0]
+    assert [p["name"] for p in profiles(deep_merge(DEFAULTS, {"profiles": {"name": "m"}}))] == ["default"]
