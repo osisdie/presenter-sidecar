@@ -13,6 +13,12 @@ and no extra DPI factor is needed: the only scale is the frame → projector let
 Clipping: a menu is cut to the projected window's visible frame. Nothing outside the window's own
 rectangle reaches the projector (the same promise as region mode), and a menu that sticks out of the
 window is shown only up to the window edge.
+
+Whose menus (:func:`context_ok`): a window capture keeps projecting a window that another program
+covers, so a menu over the frame may belong to that other program. A menu is pasted when it belongs to
+the projected program (same process as the source or the followed popup), or when the user is working
+in the projected window, the taskbar or the tray (:class:`Foreground`). Menus of a program that has the
+focus over the projected window are not pasted.
 """
 from __future__ import annotations
 
@@ -39,6 +45,9 @@ DEFAULT_MENU_CLASSES = (
 )
 # Never pasted, whatever the config says: drop shadows drawn as separate windows.
 IGNORED_CLASSES = frozenset({"SysShadow"})
+# The taskbar and the tray: a menu opened from there belongs to whatever program owns the icon.
+SHELL_CLASSES = frozenset({"Shell_TrayWnd", "Shell_SecondaryTrayWnd", "NotifyIconOverflowWindow",
+                           "TopLevelWindowForOverflowXamlIsland"})
 
 
 @dataclass(frozen=True)
@@ -54,6 +63,16 @@ class TopWin:
 
 
 @dataclass(frozen=True)
+class Foreground:
+    """The foreground window at a scan: its root window, process, class and visibility."""
+
+    root: int = 0
+    pid: int = 0
+    cls: str = ""
+    visible: bool = True
+
+
+@dataclass(frozen=True)
 class OverlaySettings:
     enabled: bool = True
     classes: frozenset = frozenset(DEFAULT_MENU_CLASSES)
@@ -61,6 +80,21 @@ class OverlaySettings:
     margin: int = 8                # "adjacent": within this many pixels of the frame
     max_size: tuple[int, int] = (1600, 1400)   # heuristic only: bigger popups are not menus
     interval: float = 0.1          # seconds between full window scans (positions are re-checked every frame)
+
+
+def flag(v, default: bool) -> bool:
+    """A config on/off value. JSON booleans and numbers as usual; the strings "false", "0", "no", "off"
+    and "" are false ("true", "1", "yes", "on" true); anything else falls back to ``default``."""
+    if isinstance(v, str):
+        x = v.strip().lower()
+        if x in ("false", "0", "no", "off", ""):
+            return False
+        if x in ("true", "1", "yes", "on"):
+            return True
+        return default
+    if v is None:
+        return default
+    return bool(v)
 
 
 def _num(v, default, lo, hi, cast=float):
@@ -81,9 +115,9 @@ def overlay_settings(cfg: dict) -> OverlaySettings:
     if not (isinstance(size, (list, tuple)) and len(size) >= 2):
         size = d.max_size
     return OverlaySettings(
-        enabled=bool(cfg.get("menu_overlay", d.enabled)),
+        enabled=flag(cfg.get("menu_overlay", d.enabled), d.enabled),
         classes=frozenset(str(c) for c in classes if c) - IGNORED_CLASSES,
-        heuristic=bool(cfg.get("menu_overlay_heuristic", d.heuristic)),
+        heuristic=flag(cfg.get("menu_overlay_heuristic", d.heuristic), d.heuristic),
         margin=_num(cfg.get("menu_overlay_margin", d.margin), d.margin, 0, 200, int),
         max_size=(_num(size[0], d.max_size[0], 1, 100000, int), _num(size[1], d.max_size[1], 1, 100000, int)),
         interval=_num(cfg.get("menu_overlay_interval_sec", d.interval), d.interval, 0.02, 2.0),
@@ -128,20 +162,54 @@ def _skipped(w: TopWin, skip_hwnds, skip_pids, private: list[Rect]) -> bool:
     return any(intersects(w.rect, p) for p in private)
 
 
+def context_ok(fg: Foreground, owner_hwnds, owner_pids, s: OverlaySettings, prev_ok: bool) -> bool:
+    """May menus of OTHER processes than the projected program be pasted at this scan?
+
+    Yes while the user works in the projected program or the shell:
+
+    - (b) the foreground root is the source or the followed popup, or belongs to their process. Win32
+      ``#32768`` menus never take the foreground, so the owner stays foreground while one is open;
+    - (c) the foreground is the taskbar or the tray (:data:`SHELL_CLASSES`): tray and taskbar menus;
+    - (c) right after such a scan (``prev_ok``), the foreground is a menu window itself (a menu host
+      that took the focus when it opened) or an invisible window (a tray program brings its hidden
+      window to the front before it opens its tray menu).
+
+    A visible window of another program in front (a chat window over the slides) makes it False, so
+    that program's menus, drop-downs and autofill lists are not pasted.
+    """
+    if fg.root and fg.root in owner_hwnds:
+        return True
+    if fg.pid and fg.pid in owner_pids:
+        return True
+    if fg.cls in SHELL_CLASSES:
+        return True
+    return prev_ok and (not fg.visible or (fg.cls in s.classes and fg.cls not in IGNORED_CLASSES))
+
+
+def menu_allowed(w: TopWin, owner_pids, ctx_ok: bool) -> bool:
+    """(a) a menu of the projected program itself (same process as the source or the followed popup)
+    is always pasted; any other process's menu only while :func:`context_ok`."""
+    return w.pid in owner_pids or ctx_ok
+
+
 def pick_menus(wins: list[TopWin], frame: Rect, s: OverlaySettings, *, skip_hwnds=frozenset(),
-               skip_pids=frozenset(), private: list[Rect] | None = None) -> list[TopWin]:
+               skip_pids=frozenset(), private: list[Rect] | None = None, owner_pids=None,
+               ctx_ok: bool = True) -> list[TopWin]:
     """Menu-like windows over (or next to) ``frame``, bottom-most first so later ones are pasted on top.
 
-    ``wins`` comes from EnumWindows, which lists top-level windows topmost first. Any process counts
-    (Explorer menus belong to explorer.exe); ``skip_hwnds`` are the tool's own windows and the projected
-    window itself, ``skip_pids`` the panel browser's process, ``private`` the panel's rect.
+    ``wins`` comes from EnumWindows, which lists top-level windows topmost first. Other processes count
+    (Explorer menus belong to explorer.exe) under :func:`menu_allowed`: ``owner_pids`` are the projected
+    program's processes (None: no check), ``ctx_ok`` is :func:`context_ok`. ``skip_hwnds`` are the
+    tool's own windows and the projected window itself, ``skip_pids`` the panel browser's process,
+    ``private`` the panel's rect.
     """
     if not s.enabled:
         return []
     private = private or []
     out = [w for w in wins
            if w.rect[0] < w.rect[2] and w.rect[1] < w.rect[3] and near(w.rect, frame, s.margin)
-           and menu_like(w, s) and not _skipped(w, skip_hwnds, skip_pids, private)]
+           and menu_like(w, s) and not _skipped(w, skip_hwnds, skip_pids, private)
+           and (owner_pids is None or menu_allowed(w, owner_pids, ctx_ok))]
     out.reverse()
     return out
 
@@ -186,10 +254,36 @@ def overlay_blits(rects: list[Rect], frame: Rect, ox: int, oy: int, tw: int, th:
     return out
 
 
+def panel_windows(wins: list[TopWin], panel_pids, keep_hwnds=frozenset()) -> list[Rect]:
+    """Region mode: rects of every visible top-level window of the panel browser's process. The panel
+    window itself, and its own popups (context menu, ``<select>`` list, autofill, permission bubble),
+    are separate windows of that process; all of them are painted black. ``keep_hwnds`` (the projected
+    window) are never masked. The panel runs in its own browser profile, so that process holds nothing
+    else."""
+    return [w.rect for w in wins
+            if w.pid and w.pid in panel_pids and w.hwnd not in keep_hwnds
+            and w.rect[0] < w.rect[2] and w.rect[1] < w.rect[3]]
+
+
+def overlay_action(*, live: bool, region: bool, enabled: bool, frozen: bool) -> str:
+    """What the menu overlay does this frame: "update" (scan and grab the menus), "keep" (frozen: the
+    menus pasted when F8 was pressed stay) or "clear" (blank screen, no live frame, region mode — which
+    shows the menus itself — or overlay off)."""
+    if live and not region and enabled:
+        return "update"
+    return "keep" if frozen else "clear"
+
+
+def region_grab(src_state: str) -> bool:
+    """Region mode copies the screen: never while the projected window lies on the projector itself
+    (it would copy its own output, a feedback loop). The panel shows the "on_projector" warning."""
+    return src_state == "ok"
+
+
 def private_masks(frame: Rect, private: list[Rect], ox: int, oy: int, tw: int, th: int
                   ) -> list[tuple[int, int, int, int]]:
-    """Region mode: projector ``(x, y, w, h)`` areas to paint black because one of the tool's own windows
-    (the private panel) lies over the captured rectangle."""
+    """Region mode: projector ``(x, y, w, h)`` areas to paint black because one of the panel's windows
+    (:func:`panel_windows`) lies over the captured rectangle."""
     out = []
     for p in private:
         c = clip(p, frame)

@@ -162,9 +162,11 @@ Right-click menus, Windows 11 context menus, tray and taskbar menus, many drop-d
 separate windows, so window capture never sees them. Two ways to show them:
 
 - **Menu overlay** (`menu_overlay`, on by default): menus that overlap the projected window are copied
-  from the screen and pasted onto the projector, at the same place and scale as the window. It works for
-  any program's menus (Explorer's belong to `explorer.exe`, not to the window), never for the panel's own
-  menus, and follows a projected popup. A menu that sticks out of the window is cut at the window's edge:
+  from the screen and pasted onto the projector, at the same place and scale as the window. It pastes the
+  projected program's own menus, and other programs' menus (Explorer's belong to `explorer.exe`, tray
+  menus to the tray icon's program) only while you work in the projected window, the taskbar or the tray:
+  when another program has the focus over the projected window (a chat window over the slides), its menus,
+  drop-downs and autofill lists are not pasted. Never the panel's own menus; it follows a projected popup. A menu that sticks out of the window is cut at the window's edge:
   nothing outside the projected window reaches the projector. While frozen (F8) the projector keeps the
   menus it showed when you pressed F8; the blank screen (F9) shows none.
   - The window classes treated as menus are in `menu_overlay_classes`: `#32768` (Win32 menus, tray and taskbar menus), `Chrome_WidgetWin_2` (Chrome / Edge menus and drop-downs), `Xaml_WindowedPopupClass` and `Microsoft.UI.Content.PopupWindowSiteBridge` (Windows 11 context menus), `DropDown`, `ComboLBox`, `tooltips_class32`, `MozillaDropShadowWindowClass` (Firefox), `Net UI Tool Window` (Office).
@@ -173,12 +175,18 @@ separate windows, so window capture never sees them. Two ways to show them:
     `menu_overlay_heuristic: true` also pastes unknown small captionless tool / topmost popups (off by
     default: those can be other programs' floating windows).
   - Set `"menu_overlay": false` to turn it off.
+  - **Privacy:** what is pasted is a screen copy of the menu's area, so a menu, drop-down or autofill list
+    that lies over the projected window is shown to the audience, cut at the window's edge. A menu of another
+    program that shares the projected program's process (a second window of the same browser) counts as the
+    projected program's. Turn the overlay off (`"menu_overlay": false`) if that is a concern.
 - **Region mode** (hotkey `region`, default **Ctrl+Alt+R**; `"region_mode": true` starts in it): instead of
   the window, the mirror copies the window's rectangle on the screen every frame, so *everything* on top
   of it is projected: menus, Save As and file pickers, system dialogs, tooltips, notifications. The menu
   overlay is not needed and is skipped. The panel shows a **Region** badge in the Source block and on the
-  projector view. The private panel is painted black if it overlaps the rectangle; any other window you
-  move over it is projected.
+  projector view. The private panel is painted black if it overlaps the rectangle, together with its own
+  menus, drop-downs and pop-ups (every visible window of the panel browser); any other window you move
+  over it is projected. If the projected window lies on the projector itself, region mode shows the last
+  frame (no screen copy of the projector's own picture) and the panel shows the warning.
   - **Anything that pops up in that rectangle is projected. Press F8 (freeze) before private actions**
     (a password manager, a notification, another window), and F8 again afterwards.
   - Prefer F11? Set `"region": "F11"` under `hotkeys`. It is not the default because a global hotkey
@@ -477,9 +485,11 @@ only `python3` is needed.
   expression (`document.visibilityState`, `document.hasFocus()`, `location.href`).
 - **Region mode projects a screen area, not a window**: whatever appears inside the projected window's
   rectangle (notifications, a password manager, another window dragged over it) is projected. Press F8
-  (freeze) before private actions. The panel is blacked out if it overlaps; the badge in the panel shows
-  when region mode is on. The menu overlay pastes only windows of menu classes over the projected window,
-  never the panel's.
+  (freeze) before private actions. The panel and its own pop-ups are blacked out if they overlap; the badge
+  in the panel shows when region mode is on.
+- **Menu overlay pastes menus over the projected window** (on by default): windows of menu classes over
+  the projected window, cut at its edge, never the panel's. Another program's menus are pasted only while
+  you work in the projected window, the taskbar or the tray. Set `"menu_overlay": false` to turn it off.
 - **Hidden from the audience**: source titles, warnings and notices appear only in the panel.
 - **Projector preview**: `logs/mirror.preview.jpg` holds a small copy of what is on the projector, so it
   contains screen content. It stays on this computer in `logs/` (gitignored, and denied to the AI helper),

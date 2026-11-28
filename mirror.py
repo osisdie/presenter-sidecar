@@ -46,8 +46,9 @@ from presenter_sidecar.geometry import (arrow_polygons, contains, crop_in_window
                                         sample_grid)
 from presenter_sidecar.hotkeys import hotkey_table
 from presenter_sidecar.i18n import t
-from presenter_sidecar.overlay import (OverlaySettings, TopWin, over_any, overlay_blits, overlay_settings,
-                                       pick_menus, popup_style, private_masks, unknown_popups)
+from presenter_sidecar.overlay import (Foreground, OverlaySettings, TopWin, context_ok, flag, over_any,
+                                       overlay_action, overlay_blits, overlay_settings, panel_windows, pick_menus,
+                                       popup_style, private_masks, region_grab, unknown_popups)
 from presenter_sidecar.preview import PREVIEW_FILE, PreviewWriter, preview_settings, scaled_size
 from presenter_sidecar.windows import WindowInfo, auto_pick, focus_target, newest, popup_eligible, source_allowed
 
@@ -423,6 +424,34 @@ def menu_windows(classes) -> list[TopWin]:
     return found
 
 
+def pid_windows(pids) -> list[TopWin]:
+    """Visible top-level windows of the given processes, titled or not, with their current rects."""
+    found = []
+    if not pids:
+        return found
+
+    def cb(hwnd, lparam):
+        if not user32.IsWindowVisible(hwnd) or user32.IsIconic(hwnd):
+            return 1
+        pid = window_pid(hwnd)
+        if pid in pids and not is_cloaked(hwnd):
+            found.append(TopWin(int(hwnd), "", frame_rects(hwnd)[1], pid=pid))
+        return 1
+
+    proc = ctypes.WINFUNCTYPE(ctypes.c_bool, H, wintypes.LPARAM)
+    user32.EnumWindows(proc(cb), 0)
+    return found
+
+
+def foreground() -> Foreground:
+    fg = user32.GetForegroundWindow()
+    if not fg:
+        return Foreground()
+    root = user32.GetAncestor(fg, GA_ROOT) or fg
+    return Foreground(root=int(root), pid=window_pid(fg), cls=class_name(root),
+                      visible=bool(user32.IsWindowVisible(root)))
+
+
 class MenuOverlay:
     """Paste menus (separate top-level windows that window capture misses) over the projected frame.
 
@@ -440,6 +469,7 @@ class MenuOverlay:
         self.last_error = ""
         self.blits: list = []                # (pygame surface, (x, y)) on the projector
         self.rects: list = []                # screen rects pasted (pointer test)
+        self.ctx_ok = False                  # overlay.context_ok at the last full scan
 
     def clear(self):
         self.menus, self.blits, self.rects = [], [], []
@@ -454,17 +484,20 @@ class MenuOverlay:
             self.menus = alive
             return
         self.last_scan = now
+        owner_hwnds, owner_pids = skip.pop("owner_hwnds"), skip.pop("owner_pids")
+        self.ctx_ok = context_ok(foreground(), owner_hwnds, owner_pids, self.s, self.ctx_ok)
         wins = menu_windows(self.s.classes)
-        self.menus = pick_menus(wins, frame, self.s, **skip)
+        self.menus = pick_menus(wins, frame, self.s, owner_pids=owner_pids, ctx_ok=self.ctx_ok, **skip)
         for cls in unknown_popups(wins, frame, self.s, **skip):
             if cls not in self.logged:  # once per class: add it to menu_overlay_classes if it is a menu
                 self.logged.add(cls)
                 log("popup class not pasted (add it to menu_overlay_classes if it is a menu):", repr(cls))
 
-    def update(self, now, sct, geom, smooth, *, skip_hwnds, skip_pids, private):
+    def update(self, now, sct, geom, smooth, *, skip_hwnds, skip_pids, private, owner_hwnds, owner_pids):
         import pygame
         frame, _, ox, oy, tw, th = geom
-        self._scan(now, frame, dict(skip_hwnds=skip_hwnds, skip_pids=skip_pids, private=private))
+        self._scan(now, frame, dict(skip_hwnds=skip_hwnds, skip_pids=skip_pids, private=private,
+                                    owner_hwnds=owner_hwnds, owner_pids=owner_pids))
         blits, rects = [], []
         for src, (x, y, w, h) in overlay_blits([m.rect for m in self.menus], frame, ox, oy, tw, th):
             shot = sct.grab({"left": src[0], "top": src[1], "width": src[2] - src[0], "height": src[3] - src[1]})
@@ -814,9 +847,12 @@ def main():
         except Exception as e:
             log("WGC unavailable, using PrintWindow:", e)
     wgc_seq = -1
-    region = bool(CFG.get("region_mode", False))  # screen copy of the projected window's rectangle
+    region = flag(CFG.get("region_mode", False), False)  # screen copy of the projected window's rectangle
     overlay = MenuOverlay(overlay_settings(CFG))
     panels: list[tuple[int, tuple, int]] = []    # (hwnd, frame, pid) of the panel windows, every 2 s
+    panel_pids: set[int] = set()                 # the panel browser's processes (its own profile)
+    masks: list[tuple] = []                      # region mode: rects of all panel-process windows
+    last_mask_scan = 0.0
     log("menu overlay:", "on" if overlay.s.enabled else "off", "| region mode:", "on" if region else "off")
 
     # ---- pointer assets
@@ -984,6 +1020,7 @@ def main():
                         note(t(LANG, "note.clip_on") if clip else t(LANG, "note.clip_off"))
                     elif ev == "region":
                         region = not region
+                        last_panel_fix = last_mask_scan = 0.0  # fresh panel pids and masks right away
                         if region and wgc is not None:
                             wgc.stop()  # restarted by the capture below when region mode ends
                         log("region mode", "on" if region else "off")
@@ -1001,7 +1038,9 @@ def main():
                 if t0 - last_panel_fix > 2.0:
                     last_panel_fix = t0
                     panels = []
+                    panel_pids = set()
                     for pnl in find_windows(PANEL_TITLE, "Chrome_WidgetWin_1"):
+                        panel_pids.add(window_pid(pnl))
                         if user32.IsIconic(pnl):
                             continue
                         panels.append((int(pnl), frame_rects(pnl)[1], window_pid(pnl)))
@@ -1035,13 +1074,16 @@ def main():
                     tc = time.perf_counter()
                     img = None
                     reuse = False
-                    if region:  # everything on top of the window's rectangle, by design
+                    # Region mode: everything on top of the window's rectangle, by design. Never on the
+                    # projector itself (feedback loop: the panel shows the warning). Window capture is not
+                    # used: a failed grab or a skipped one keeps the last frame on the projector.
+                    if region and region_grab(src_state):
                         try:
                             shot = sct.grab({"left": fr[0], "top": fr[1], "width": fr[2] - fr[0],
                                              "height": fr[3] - fr[1]})
                             img = pygame.image.frombuffer(shot.bgra, shot.size, "BGRA")
                             backend_used = "mss"
-                        except Exception as e:  # noqa: BLE001 - window capture below takes over this frame
+                        except Exception as e:  # noqa: BLE001 - keep the last frame
                             log("region capture failed:", e)
                     if wgc is not None and not region:
                         if wgc.hwnd != active or (prev_raw != "ok" and not ph):
@@ -1062,14 +1104,14 @@ def main():
                             backend_used = "wgc"
                         elif time.perf_counter() - wgc.t_start < 1.5 and scaled is not None and backend_used == "wgc":
                             reuse = True
-                    if img is None and not reuse and backend_cfg in ("printwindow", "auto"):
+                    if img is None and not reuse and not region and backend_cfg in ("printwindow", "auto"):
                         got = pw.grab(active, wr)
                         if got and not (backend_cfg == "auto" and mostly_black(got[0])):
                             buf, size = got
                             full = pygame.image.frombuffer(buf, size, "BGRA")
                             img = full.subsurface(pygame.Rect(*crop_in_window(fr, wr)).clip(full.get_rect()))
                             backend_used = "printwindow"
-                    if img is None and not reuse and backend_cfg in ("mss", "auto"):
+                    if img is None and not reuse and not region and backend_cfg in ("mss", "auto"):
                         if unobscured(active, fr):
                             shot = sct.grab({"left": fr[0], "top": fr[1], "width": fr[2] - fr[0],
                                              "height": fr[3] - fr[1]})
@@ -1087,8 +1129,12 @@ def main():
                             scaled = pygame.Surface((tw, th)).convert()
                         (pygame.transform.smoothscale if smooth else pygame.transform.scale)(img, (tw, th), scaled)
                         geom = (fr, scale, ox, oy, tw, th)  # matches the visible frame fr
-                        if region:  # the private panel over the rectangle is painted black
-                            for x, y, w_, h_ in private_masks(fr, [p[1] for p in panels], ox, oy, tw, th):
+                        if region:  # every window of the panel's process over the rectangle is painted black
+                            if t0 - last_mask_scan >= overlay.s.interval:  # current rects, every 0.1 s
+                                last_mask_scan = t0
+                                masks = panel_windows(pid_windows(panel_pids), panel_pids,
+                                                      {int(active), int(source.hwnd or 0)})
+                            for x, y, w_, h_ in private_masks(fr, masks, ox, oy, tw, th):
                                 scaled.fill((0, 0, 0), pygame.Rect(x - ox, y - oy, w_, h_))
                         live = True
                         cap_ms_acc += (time.perf_counter() - tc) * 1000
@@ -1096,18 +1142,22 @@ def main():
 
                 # ---- menu overlay (window capture only: region mode already shows menus). Frozen: keep the
                 # menus pasted when F8 was pressed; blank, or no live frame: none.
-                if live and not region and overlay.s.enabled and geom is not None:
+                act = overlay_action(live=live and geom is not None, region=region, enabled=overlay.s.enabled,
+                                     frozen=frozen)
+                if act == "update":
                     try:
-                        pids = {p[2] for p in panels} - {window_pid(active)}
+                        owner_hwnds = {int(active), int(source.hwnd or 0)} - {0}
+                        owner_pids = {window_pid(h) for h in owner_hwnds} - {0}
+                        pids = panel_pids - owner_pids
                         overlay.update(t0, sct, geom, smooth, private=[p[1] for p in panels], skip_pids=pids,
-                                       skip_hwnds={int(hwnd), int(active), int(source.hwnd or 0)}
-                                       | {p[0] for p in panels})
+                                       skip_hwnds={int(hwnd)} | owner_hwnds | {p[0] for p in panels},
+                                       owner_hwnds=owner_hwnds, owner_pids=owner_pids)
                     except Exception as e:  # noqa: BLE001 - a menu must never stop the projector
                         if str(e) != overlay.last_error:  # not on every frame
                             overlay.last_error = str(e)
                             log("menu overlay error:", e)
                         overlay.clear()
-                elif not frozen:
+                elif act == "clear":
                     overlay.clear()
 
                 # ---- draw

@@ -74,8 +74,12 @@ All notable changes to this project are documented here. The format follows
   - A window scan every `menu_overlay_interval_sec` (0.1 s) finds visible windows of `menu_overlay_classes`
     (`#32768`, `Chrome_WidgetWin_2`, `Xaml_WindowedPopupClass`, `Microsoft.UI.Content.PopupWindowSiteBridge`,
     `DropDown`, `ComboLBox`, `tooltips_class32`, `MozillaDropShadowWindowClass`, `Net UI Tool Window`;
-    `SysShadow` never) over or within `menu_overlay_margin` (8 px) of the projected window, from any process;
-    found menus are re-checked every frame and grabbed with mss.
+    `SysShadow` never) over or within `menu_overlay_margin` (8 px) of the projected window; found menus are
+    re-checked every frame and grabbed with mss.
+  - Whose menus: the projected program's (same process as the source or the followed popup) always; another
+    process's (Explorer, tray icons) only while the foreground is the projected window, its process, the
+    taskbar or the tray, or right after that a menu host or a hidden tray window. A covering program's menus,
+    drop-downs and autofill lists are not pasted (`overlay.context_ok`, `overlay.menu_allowed`).
   - Placed with the frame's own letterbox mapping (same as the pointer) and cut at the projected window's edge.
   - Never the panel's menus (its process, its rect, its windows). Follows a projected popup; F8 keeps the
     menus of the frozen frame, F9 shows none. The pointer is drawn over pasted menus.
@@ -84,8 +88,12 @@ All notable changes to this project are documented here. The format follows
   - `presenter_sidecar/overlay.py` (pure rules and rect mapping; `tests/test_overlay.py`).
 - Region mode (hotkey `region`, default Ctrl+Alt+R; `region_mode` to start in it): projects a screen copy of
   the projected window's rectangle every frame, so menus, file pickers, system dialogs and anything else on
-  top are shown. Anything that pops up there is projected: press F8 before private actions. The private panel
-  is painted black where it overlaps. The menu overlay is skipped in this mode.
+  top are shown. Anything that pops up there is projected: press F8 before private actions. Every visible
+  window of the panel browser (the panel and its context menus, drop-downs, autofill and permission pop-ups)
+  is painted black where it overlaps, with current rects every 0.1 s (`overlay.panel_windows`). No screen
+  copy while the projected window lies on the projector (the warning shows; the last frame stays), and a
+  failed copy keeps the last frame. The menu overlay is skipped in this mode.
+  - Config on/off values given as strings (`"false"`, `"0"`, `"off"`) read as false (`overlay.flag`).
   - Status: `capture_mode` (`window` / `region`), `menu_overlay`, `menus`.
   - Panel: a Region / 區域 badge in the Source line (with a tooltip about F8), in the closed Source summary and on
     the projector view; the ⌨ overlay lists the new hotkey.

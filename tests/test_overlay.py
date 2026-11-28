@@ -3,9 +3,10 @@ import pytest
 from presenter_sidecar.config import DEFAULTS, load_config
 from presenter_sidecar.geometry import fit_letterbox, map_point
 from presenter_sidecar.overlay import (DEFAULT_MENU_CLASSES, WS_CAPTION, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
-                                       OverlaySettings, TopWin, clip, map_rect, menu_like, near, over_any,
-                                       overlay_blits, overlay_settings, pick_menus, popup_style, private_masks,
-                                       unknown_popups)
+                                       Foreground, OverlaySettings, TopWin, clip, context_ok, flag, map_rect,
+                                       menu_allowed, menu_like, near, over_any, overlay_action, overlay_blits,
+                                       overlay_settings, panel_windows, pick_menus, popup_style, private_masks,
+                                       region_grab, unknown_popups)
 
 FRAME = (100, 50, 1700, 950)      # projected window, 1600 x 900
 S = OverlaySettings()
@@ -164,3 +165,122 @@ def test_private_masks_for_region_mode():
 def test_over_any():
     assert over_any([(0, 0, 10, 10), (20, 20, 30, 30)], 25, 25)
     assert not over_any([(0, 0, 10, 10)], 10, 5)
+
+
+@pytest.mark.parametrize("v,want", [("false", False), ("False", False), ("0", False), ("off", False), ("", False),
+                                    ("true", True), ("on", True), (False, False), (0, False), (1, True),
+                                    (True, True), (None, True), ("maybe", True)])
+def test_flag(v, want):
+    assert flag(v, True) is want
+
+
+def test_string_false_turns_the_overlay_off():
+    s = overlay_settings({"menu_overlay": "false", "menu_overlay_heuristic": "true"})
+    assert s.enabled is False and s.heuristic is True
+
+
+# ---- whose menus are pasted (context_ok / menu_allowed / pick_menus with owner_pids)
+CHROME, EXPLORER, CHAT, TEAMS = 100, 200, 300, 400       # process ids
+SRC, CHAT_WIN = 1000, 3000                                # window handles
+
+
+def owners(src_pid):
+    return {SRC}, {src_pid}
+
+
+def scan(src_pid, fg, menu, prev_ok=False):
+    hwnds, pids = owners(src_pid)
+    ok = context_ok(fg, hwnds, pids, S, prev_ok)
+    return [w.hwnd for w in pick_menus([menu], FRAME, S, owner_pids=pids, ctx_ok=ok)], ok
+
+
+def test_chrome_source_and_chrome_menu_are_pasted():
+    # A Chrome menu never takes the foreground: the browser window stays foreground, same process.
+    menu = win(1, "Chrome_WidgetWin_2", (300, 300, 500, 500), pid=CHROME)
+    assert scan(CHROME, Foreground(root=SRC, pid=CHROME, cls="Chrome_WidgetWin_1"), menu) == ([1], True)
+
+
+def test_explorer_source_and_explorer_menu_are_pasted():
+    # The Win11 XAML menu belongs to explorer.exe, like the Explorer window, and may hold the focus itself.
+    menu = win(1, "Xaml_WindowedPopupClass", (300, 300, 500, 500), pid=EXPLORER)
+    fg = Foreground(root=7777, pid=EXPLORER, cls="Xaml_WindowedPopupClass")
+    assert scan(EXPLORER, fg, menu) == ([1], True)
+
+
+def test_menu_of_a_covering_app_is_not_pasted():
+    # A chat window over the slides has the focus; its right-click menu touches the projected rect.
+    fg = Foreground(root=CHAT_WIN, pid=CHAT, cls="Chrome_WidgetWin_1")
+    for cls in ("Chrome_WidgetWin_2", "#32768"):
+        assert scan(CHROME, fg, win(1, cls, (300, 300, 500, 500), pid=CHAT)) == ([], False)
+    # ...even right after the user worked in the source: the covering window is visible and not a menu.
+    assert scan(CHROME, fg, win(1, "#32768", (300, 300, 500, 500), pid=CHAT), prev_ok=True) == ([], False)
+
+
+def test_source_menu_is_pasted_while_another_app_has_the_focus():
+    # (a): the projected program's own menu or tooltip is fine wherever the focus is.
+    fg = Foreground(root=CHAT_WIN, pid=CHAT, cls="Chrome_WidgetWin_1")
+    assert scan(CHROME, fg, win(1, "tooltips_class32", (300, 300, 500, 500), pid=CHROME)) == ([1], False)
+
+
+def test_tray_menu_while_the_taskbar_is_foreground_is_pasted():
+    menu = win(1, "#32768", (1500, 700, 1700, 950), pid=TEAMS)
+    for cls in ("Shell_TrayWnd", "Shell_SecondaryTrayWnd", "NotifyIconOverflowWindow",
+                "TopLevelWindowForOverflowXamlIsland"):
+        assert scan(CHROME, Foreground(root=5, pid=EXPLORER, cls=cls), menu) == ([1], True)
+
+
+def test_tray_program_brings_its_hidden_window_to_the_front():
+    # SetForegroundWindow(hidden window) + TrackPopupMenu, right after the taskbar click.
+    menu = win(1, "#32768", (1500, 700, 1700, 950), pid=TEAMS)
+    hidden = Foreground(root=6, pid=TEAMS, cls="TeamsHiddenWnd", visible=False)
+    assert scan(CHROME, hidden, menu, prev_ok=True) == ([1], True)
+    assert scan(CHROME, hidden, menu, prev_ok=False) == ([], False)
+
+
+def test_menu_host_taking_the_focus_keeps_the_context_from_the_previous_scan():
+    menu = win(1, "Microsoft.UI.Content.PopupWindowSiteBridge", (300, 300, 500, 500), pid=TEAMS)
+    host = Foreground(root=8, pid=TEAMS, cls="Microsoft.UI.Content.PopupWindowSiteBridge")
+    assert scan(CHROME, host, menu, prev_ok=True) == ([1], True)
+    assert scan(CHROME, host, menu, prev_ok=False) == ([], False)
+
+
+def test_followed_popup_counts_as_the_projected_program():
+    popup_hwnd, popup_pid = 1001, 500
+    fg = Foreground(root=popup_hwnd, pid=popup_pid, cls="#32770")
+    assert context_ok(fg, {SRC, popup_hwnd}, {CHROME, popup_pid}, S, False)
+    assert menu_allowed(win(1, "#32768", (0, 0, 1, 1), pid=popup_pid), {CHROME, popup_pid}, False)
+
+
+def test_no_owner_check_when_owner_pids_is_none():
+    assert [w.hwnd for w in pick_menus([win(1, "#32768", (300, 300, 500, 500), pid=CHAT)], FRAME, S,
+                                       ctx_ok=False)] == [1]
+
+
+# ---- region mode: panel process windows, overlay state, feedback guard
+def test_panel_windows_masks_every_window_of_the_panel_process():
+    wins = [win(1, "Chrome_WidgetWin_1", (1750, 0, 2200, 1000), pid=99),    # the panel
+            win(2, "Chrome_WidgetWin_2", (1500, 300, 1800, 600), pid=99),   # its context menu over the source
+            win(3, "Chrome_WidgetWin_2", (300, 300, 500, 500), pid=10),     # the source's menu
+            win(4, "Chrome_WidgetWin_1", (0, 0, 0, 0), pid=99),             # empty
+            win(5, "Chrome_WidgetWin_1", (100, 50, 1700, 950), pid=99)]     # kept (projected window)
+    assert panel_windows(wins, {99}, {5}) == [(1750, 0, 2200, 1000), (1500, 300, 1800, 600)]
+    assert panel_windows(wins, set()) == []
+    win0 = win(6, "X", (1, 1, 2, 2), pid=0)
+    assert panel_windows([win0], {0}) == []
+
+
+@pytest.mark.parametrize("live,region,enabled,frozen,want", [
+    (True, False, True, False, "update"),
+    (True, True, True, False, "clear"),     # region mode shows the menus itself
+    (True, False, False, False, "clear"),   # overlay off
+    (False, False, True, True, "keep"),     # F8: the menus pasted when frozen stay
+    (False, True, True, True, "keep"),      # region toggled while frozen: the frozen frame keeps its menus
+    (False, False, True, False, "clear"),   # blank / no live frame
+])
+def test_overlay_action(live, region, enabled, frozen, want):
+    assert overlay_action(live=live, region=region, enabled=enabled, frozen=frozen) == want
+
+
+def test_region_grab_skips_the_projector_feedback_loop():
+    assert region_grab("ok")
+    assert not region_grab("on_projector")
