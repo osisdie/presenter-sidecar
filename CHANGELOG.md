@@ -34,6 +34,25 @@ All notable changes to this project are documented here. The format follows
   headless Chromium checks of the panel (skipped without Playwright).
 
 - CI: a `ui` job runs `tests/test_panel_ui.py` in headless Chromium (`REQUIRE_UI_TESTS=1`: never skipped there).
+- Profiles: a set of notes files, timer sections and auto-follow rules that switch together, so the stage bar
+  always belongs to the notes on screen.
+  - The top-level keys are the first profile (`profile_name`, default `default`): configs from 0.2.0 work unchanged.
+    `profiles` adds more, each with `name`, `notes_files`, `pacing_file` or `pacing_notes`, `notes_rules`,
+    `notes_follow_doc`.
+  - `pacing_notes`: pacing derived from a notes file, one timer section per `##` section with a line that starts
+    with `建議時間：約 N 分鐘` / `Suggested time: ~N min` (hours and decimals too; 0 is skipped). A repeated heading
+    maps to its own timer (`presenter_sidecar.notes.pacing_from_notes`, `stage_for_section`).
+  - Panel: a profile chip at the end of the tabs row; each profile keeps its own timer (`timer@<profile>`),
+    open notes file and place (the 0.2.0 keys are read once for the first profile).
+  - Auto-follow checks the active profile's rules first, then the others, and switches profile with a notice
+    (`profile_auto_switch`, default on).
+  - Startup profile: `panel_server.py --profile`, `PRESENTER_PROFILE`, `"profile"`; `start.bat` / `start.ps1 -Profile NAME`
+    (a running server gets `POST /api/profile` as UTF-8). A startup profile is applied once per server start
+    by each panel window; F5 and a restart without one keep a profile picked by hand. Profiles added to `config.json` appear without F5; profiles left out
+    (empty top-level `notes_files`, no name, repeated name) are logged.
+  - `/api/notes` and `/api/pacing` take `?profile=`; `/api/state?profile=` returns the target's `profile` and
+    the startup request `profile_req`.
+  - Example: a `meeting` profile with `examples/notes/meeting.md`.
 
 ### Fixed
 

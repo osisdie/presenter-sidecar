@@ -3,7 +3,8 @@
 // Run: node --test tests/js/*.test.js
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { FOLD_DEFAULTS, foldOpen, PREVIEW_STALE_SECS, previewStatus, ageParts } = require("../../web/view.js");
+const { FOLD_DEFAULTS, foldOpen, PREVIEW_STALE_SECS, previewStatus, ageParts, pickProfile, profileKey, profileFallback,
+  targetKey, stageIndex } = require("../../web/view.js");
 
 test("fold defaults: preview closed, notes and everything else open", () => {
   assert.equal(foldOpen("preview", null), false);
@@ -68,4 +69,50 @@ test("age in seconds, then minutes", () => {
   assert.deepEqual(ageParts(59.4), { n: 59, unit: "s" });
   assert.deepEqual(ageParts(61), { n: 1, unit: "min" });
   assert.deepEqual(ageParts(-2), { n: 0, unit: "s" });
+});
+
+const NAMES = ["talk", "meeting"];
+
+test("profile: a new startup request wins once", () => {
+  assert.deepEqual(pickProfile(NAMES, "talk", { name: "meeting", id: "b-0" }, "a-0"),
+    { name: "meeting", seen: "b-0", requested: true });
+  // F5 afterwards: same request id, so the profile picked by hand stays.
+  assert.deepEqual(pickProfile(NAMES, "talk", { name: "meeting", id: "b-0" }, "b-0"),
+    { name: "talk", seen: "b-0", requested: false });
+});
+
+test("profile: first open, unknown names and no request", () => {
+  assert.equal(pickProfile(NAMES, null, { name: "meeting", id: "x" }, null).name, "meeting");
+  assert.equal(pickProfile(NAMES, "gone", { name: "meeting", id: "x" }, "x").name, "meeting");
+  assert.equal(pickProfile(NAMES, null, { name: "gone", id: "y" }, null).name, "talk");
+  assert.deepEqual(pickProfile(NAMES, "meeting", null, null), { name: "meeting", seen: null, requested: false });
+  assert.equal(pickProfile([], null, null, null).name, "");
+});
+
+test("profile storage keys: per profile, 0.2.0 keys only for the first", () => {
+  assert.equal(profileKey("timer", "meeting"), "timer@meeting");
+  assert.equal(profileFallback("timer", "talk", NAMES), "timer");
+  assert.equal(profileFallback("timer", "meeting", NAMES), null);
+});
+
+test("auto-follow target key includes the profile", () => {
+  assert.equal(targetKey(null), null);
+  assert.equal(targetKey({ key: null, profile: "talk" }), null);
+  assert.notEqual(targetKey({ key: "Q&A", profile: "talk" }), targetKey({ key: "Q&A", profile: "meeting" }));
+  assert.equal(targetKey({ key: "Q&A" }), targetKey({ key: "Q&A", profile: "" }));
+});
+
+test("profile: no request id (plain server start or restart) never overrides the saved profile", () => {
+  assert.deepEqual(pickProfile(NAMES, "meeting", { name: "talk", id: null }, "old"),
+    { name: "meeting", seen: "old", requested: false });
+  assert.equal(pickProfile(NAMES, null, { name: "meeting", id: null }, null).name, "meeting");  // first open
+});
+
+test("stageIndex: a repeated heading maps to its own stage; pacing_file stages by short name", () => {
+  const derived = [{ key: "Q&A", short: "Q&A", heading: "Q&A", nth: 1 }, { key: "Q&A (2)", short: "Q&A", heading: "Q&A", nth: 2 }];
+  assert.equal(stageIndex(derived, "Q&A", 1), 0);
+  assert.equal(stageIndex(derived, " Q&A ", 2), 1);
+  const paced = [{ key: "Demo", short: "Demo" }, { key: "Demo A", short: "Demo A" }];
+  assert.equal(stageIndex(paced, "3. Demo A — code"), 1);
+  assert.equal(stageIndex(paced, "Wrap-up"), -1);
 });

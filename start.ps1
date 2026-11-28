@@ -1,5 +1,9 @@
 # Start presenter-sidecar: panel server -> panel window (Chrome/Edge --app) -> mirror.py
-# Usage: double-click start.bat, or: powershell -ExecutionPolicy Bypass -File start.ps1
+# Usage: double-click start.bat, or: powershell -ExecutionPolicy Bypass -File start.ps1 [-Profile <name>]
+# -Profile picks the panel profile (notes, timer sections, follow rules); e.g. a meeting.bat with
+#   call "%~dp0start.bat" -Profile meeting
+# If the panel server is already running, its open panels are asked to switch to that profile.
+param([Alias('Profile')][string]$SessionProfile = '')  # $PROFILE is a PowerShell built-in: do not shadow it
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $cfgPath = Join-Path $here 'config.json'
@@ -25,6 +29,15 @@ function Test-Panel {
 # 1) Panel server
 if (Test-Panel) {
     Write-Host "Panel server already running: $base"
+    if ($SessionProfile) {
+        try {
+            # Bytes, not a string: Windows PowerShell 5.1 sends a string body as ISO-8859-1: a Chinese name would arrive as "??". Keep this file ASCII (no BOM).
+            $json = @{ name = $SessionProfile } | ConvertTo-Json -Compress
+            Invoke-RestMethod -Method Post -Uri "$base/api/profile" -Headers @{ 'X-Panel' = '1' } `
+                -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($json)) | Out-Null
+            Write-Host "Asked the panel to switch to profile '$SessionProfile'"
+        } catch { Write-Warning "Profile '$SessionProfile' not switched: $($_.Exception.Message)" }
+    }
 } else {
     if ($runtime -eq 'wsl') {
         # \\wsl.localhost\<distro>\home\... -> /home/... ; any other path -> wslpath (e.g. C:\... -> /mnt/c/...)
@@ -35,12 +48,16 @@ if (Test-Panel) {
         }
         $wslArgs = @()
         if ($cfg.wsl_distro) { $wslArgs += @('-d', $cfg.wsl_distro) }
-        $cmd = "cd '$wslHere' && mkdir -p logs && exec python3 panel_server.py >> logs/panel_server.log 2>&1"
+        # Quotes are stripped as in the Windows branch below: the name sits inside '...' inside "..." here.
+        $profArg = if ($SessionProfile) { " --profile '" + ($SessionProfile -replace "['""]", "") + "'" } else { '' }
+        $cmd = "cd '$wslHere' && mkdir -p logs && exec python3 panel_server.py$profArg >> logs/panel_server.log 2>&1"
         Write-Host "Starting panel server in WSL..."
         Start-Process -WindowStyle Hidden -FilePath 'wsl.exe' -ArgumentList ($wslArgs + @('--', 'bash', '-lc', "`"$cmd`""))
     } else {
         Write-Host "Starting panel server (Windows Python)..."
-        Start-Process -WindowStyle Hidden -FilePath $py -WorkingDirectory $here -ArgumentList "`"$here\panel_server.py`"" `
+        $serverArgs = "`"$here\panel_server.py`""
+        if ($SessionProfile) { $serverArgs += " --profile `"$($SessionProfile -replace '"', '')`"" }
+        Start-Process -WindowStyle Hidden -FilePath $py -WorkingDirectory $here -ArgumentList $serverArgs `
             -RedirectStandardOutput (Join-Path $logs 'panel_server.log') -RedirectStandardError (Join-Path $logs 'panel_server.err.log')
     }
     $ok = $false

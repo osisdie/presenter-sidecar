@@ -227,3 +227,146 @@ def test_preview_from_an_older_mirror_without_the_field(preview_server):
     _, port, _ = preview_server
     call(port, "POST", "/api/mirror", {"fps": 25}, {"X-Panel": "1"})
     assert call(port, "GET", "/api/state")[1]["preview"] == {"available": False, "enabled": None, "age": None}
+
+
+# ---------------------------------------------------------------- profiles
+def test_config_lists_profiles_and_the_startup_profile(server):
+    _, port = server
+    _, body = call(port, "GET", "/api/config")
+    assert body["profiles"] == ["talk", "meeting"] and body["profile_auto_switch"] is True
+    # No --profile / PRESENTER_PROFILE / POST: no request id, so a server restart never overrides a hand pick.
+    assert body["profile_req"] == {"name": "talk", "id": None}
+    assert call(port, "GET", "/api/state")[1]["profiles"] == ["talk", "meeting"]
+
+
+def test_notes_and_pacing_per_profile(server):
+    _, port = server
+    _, talk = call(port, "GET", "/api/pacing")
+    _, meet = call(port, "GET", "/api/pacing?profile=meeting")
+    assert talk["profile"] == "talk" and talk["stages"][0]["short"] == "Intro"
+    assert meet["profile"] == "meeting" and [s["minutes"] for s in meet["stages"]] == [5, 15, 10, 5]
+    _, notes = call(port, "GET", "/api/notes?profile=meeting")
+    assert [d["name"] for d in notes["docs"]] == ["meeting.md"]
+    _, unknown = call(port, "GET", "/api/notes?profile=nope")  # unknown: the startup profile
+    assert unknown["profile"] == "talk" and len(unknown["docs"]) == 3
+
+
+def test_auto_follow_finds_another_profiles_rule(server):
+    app, port = server
+    call(port, "POST", "/api/mirror", {"source_title": "Sprint board - Google Chrome"}, {"X-Panel": "1"})
+    nt = call(port, "GET", "/api/state?profile=talk")[1]["notes_target"]
+    assert nt["profile"] == "meeting" and nt["key"] == "Board walk"
+    # The active profile's own rules come first.
+    call(port, "POST", "/api/mirror", {"source_title": "Plant-care App · Q&A - Google Chrome"}, {"X-Panel": "1"})
+    nt = call(port, "GET", "/api/state?profile=meeting")[1]["notes_target"]
+    assert nt["profile"] == "talk" and nt["key"] == "Q&A"
+    # No rule anywhere: no key, the active profile.
+    call(port, "POST", "/api/mirror", {"source_title": "Something else"}, {"X-Panel": "1"})
+    nt = call(port, "GET", "/api/state?profile=meeting")[1]["notes_target"]
+    assert nt["key"] is None and nt["profile"] == "meeting"
+
+
+def test_auto_switch_off_keeps_to_the_active_profile(server):
+    app, port = server
+    cfg = json.loads(app.cfg_path.read_text(encoding="utf-8"))
+    cfg["profile_auto_switch"] = False
+    _rewrite(app.cfg_path, cfg, 5)
+    call(port, "POST", "/api/mirror", {"source_title": "Sprint board - Google Chrome"}, {"X-Panel": "1"})
+    assert call(port, "GET", "/api/state?profile=talk")[1]["notes_target"]["key"] is None
+    assert call(port, "GET", "/api/state?profile=meeting")[1]["notes_target"]["key"] == "Board walk"
+
+
+def test_startup_profile_and_switch_request(tmp_path):
+    cfg = json.loads((ROOT / "config.example.json").read_text(encoding="utf-8"))
+    cfg["content_root"] = str(ROOT)
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps(cfg), encoding="utf-8")
+    app = panel_server.App(p, profile="meeting")  # --profile meeting
+    srv = panel_server.make_server(app, "127.0.0.1", 0)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    port = srv.server_address[1]
+    try:
+        req = call(port, "GET", "/api/state")[1]["profile_req"]
+        assert req["name"] == "meeting"
+        assert [d["name"] for d in call(port, "GET", "/api/notes")[1]["docs"]] == ["meeting.md"]
+        assert call(port, "POST", "/api/profile", {"name": "talk"})[0] == 403  # X-Panel needed
+        st, body = call(port, "POST", "/api/profile", {"name": "nope"}, {"X-Panel": "1"})
+        assert st == 400 and body["profiles"] == ["talk", "meeting"]
+        st, body = call(port, "POST", "/api/profile", {"name": "talk"}, {"X-Panel": "1"})
+        assert st == 200 and body["profile_req"]["name"] == "talk" and body["profile_req"]["id"] != req["id"]
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_profile_comes_from_cli_then_env(monkeypatch, tmp_path):
+    seen = {}
+
+    class Stop(Exception):
+        pass
+
+    def fake_make_server(app, host=None, port=None):
+        seen["profile"] = app.profile_asked
+        raise Stop
+
+    monkeypatch.setattr(panel_server, "make_server", fake_make_server)
+    monkeypatch.setenv("PRESENTER_PROFILE", "meeting")
+    with pytest.raises(Stop):
+        panel_server.main([])
+    assert seen["profile"] == "meeting"
+    with pytest.raises(Stop):
+        panel_server.main(["--profile", "talk"])
+    assert seen["profile"] == "talk"
+
+
+def test_cjk_profile_names_over_http_and_cli(tmp_path):
+    # start.ps1 posts the name as UTF-8 bytes (Windows PowerShell 5.1 would send a string as ISO-8859-1).
+    cfg = json.loads((ROOT / "config.example.json").read_text(encoding="utf-8"))
+    cfg["content_root"] = str(ROOT)
+    cfg["profiles"][0]["name"] = "會議"
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
+    app = panel_server.App(p, profile="會議")
+    srv = panel_server.make_server(app, "127.0.0.1", 0)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    port = srv.server_address[1]
+    try:
+        req = call(port, "GET", "/api/config")[1]["profile_req"]
+        assert req["name"] == "會議" and req["id"]
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        body = json.dumps({"name": "會議"}, ensure_ascii=False).encode("utf-8")
+        c.request("POST", "/api/profile", body=body, headers={"Host": f"127.0.0.1:{port}", "X-Panel": "1",
+                                                              "Content-Type": "application/json; charset=utf-8"})
+        r = c.getresponse()
+        out = json.loads(r.read())
+        c.close()
+        assert r.status == 200 and out["profile_req"]["name"] == "會議"
+        latin1 = json.dumps({"name": "??"}).encode()  # what the old start.ps1 delivered
+        assert call(port, "POST", "/api/profile", json.loads(latin1), {"X-Panel": "1"})[0] == 400
+        _, notes = call(port, "GET", "/api/notes?profile=%E6%9C%83%E8%AD%B0")
+        assert notes["profile"] == "會議" and notes["docs"][0]["name"] == "meeting.md"
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_an_unknown_cli_profile_is_no_request(tmp_path):
+    cfg = json.loads((ROOT / "config.example.json").read_text(encoding="utf-8"))
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps(cfg), encoding="utf-8")
+    assert panel_server.App(p, profile="nope").profile_request() == {"name": "talk", "id": None}
+
+
+def test_config_profile_is_a_request_once_per_server_start(tmp_path):
+    cfg = json.loads((ROOT / "config.example.json").read_text(encoding="utf-8"))
+    cfg["profile"] = "meeting"
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps(cfg), encoding="utf-8")
+    first, second = panel_server.App(p), panel_server.App(p)
+    second.boot = first.boot + "1"  # another server start
+    req = first.profile_request()
+    assert req["name"] == "meeting" and req["id"] == f"{first.boot}-0"
+    assert second.profile_request()["id"] != req["id"]
+    cfg["profile"] = "nope"  # not a profile: no request, the first profile
+    p.write_text(json.dumps(cfg), encoding="utf-8")
+    assert panel_server.App(p).profile_request() == {"name": "talk", "id": None}

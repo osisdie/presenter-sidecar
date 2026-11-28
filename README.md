@@ -38,6 +38,7 @@ All screenshots are mock content rendered from [`examples/`](examples/) by
 - [Hotkeys](#hotkeys)
 - [Choosing the source window](#choosing-the-source-window)
 - [The panel](#the-panel)
+- [Profiles: a talk and a meeting in one panel](#profiles-a-talk-and-a-meeting-in-one-panel)
 - [Try auto-follow with the demo site](#try-auto-follow-with-the-demo-site)
 - [Configuration](#configuration)
 - [Optional: run the panel server in WSL](#optional-run-the-panel-server-in-wsl)
@@ -231,7 +232,8 @@ A small Chrome/Edge window that only you see. Title: "Presenter Panel".
   smaller first, down to its header row.
 
 **Timers**
-- Sections and minutes come from `pacing_file` (see [`examples/pacing.md`](examples/pacing.md)).
+- Sections and minutes come from `pacing_file` (see [`examples/pacing.md`](examples/pacing.md)), or from
+  the notes themselves with `pacing_notes` (see [Profiles](#profiles-a-talk-and-a-meeting-in-one-panel)).
 - Start, then "Next" per section, or click a section. The timer turns orange at 80 % and red when over.
 - When you page to a notes section that belongs to another timer section, the panel offers to switch.
 
@@ -249,6 +251,58 @@ A small Chrome/Edge window that only you see. Title: "Presenter Panel".
 
   Set `claude_bin` if `claude` is not on `PATH`, `model` to choose a model, and restart.
   Answers are sent to the model provider; only enable it for material you are allowed to share there.
+
+## Profiles: a talk and a meeting in one panel
+
+A **profile** is one set of notes files, timer sections (pacing) and auto-follow rules. The top stage
+bar, the notes and the follow rules always belong to the same profile, so a meeting's notes never sit
+under a course's timer.
+
+- The top-level `notes_files`, `pacing_file` / `pacing_notes` and `notes_rules` are the first profile,
+  named `profile_name` (a config from before 0.3.0 is simply one profile). Add more under `profiles`.
+  If the top-level `notes_files` is empty while `profiles` has entries, that first profile is left out
+  (the server log says so); profiles without a name and repeated names are skipped the same way.
+
+  ```json
+  "profile_name": "talk",
+  "profiles": [
+    { "name": "meeting",
+      "notes_files": ["examples/notes/meeting.md"],
+      "pacing_notes": "examples/notes/meeting.md",
+      "notes_rules": [{ "title_contains": "Sprint board", "section_heading_contains": "Board walk" }] }
+  ]
+  ```
+- **Pacing from the notes** (`pacing_notes`, used when `pacing_file` is empty): every `##` section with a
+  line that *starts* with `Suggested time:` or `建議時間：` is a timer section, in order. A list bullet,
+  bold, `約` / `about` / `~` and ranges (`10–15`: the first number counts) are fine, and so are hours:
+  `~15 min`, `約 15 分鐘`, `1.5 hours`, `1 小時 30 分`. The phrase in the middle of a sentence, in a `>` quote
+  or a code block does not count, and a time of 0 is no section. `Part 2: Board walk` becomes the button
+  `Part 2`; a heading used twice keeps two timers. Sections without such a line (an appendix) are not
+  timed. See [`examples/notes/meeting.md`](examples/notes/meeting.md).
+- **Switching**: the chip at the end of the Notes / AI helper tabs (shown with 2+ profiles). Notes list,
+  stage bar and follow rules change together. Each profile keeps its own timer, open notes file and
+  place, so switching back finds the other timer still running.
+- **Auto-follow across profiles** (`profile_auto_switch`, on by default): the active profile's rules are
+  checked first; if none matches, the other profiles' rules are, and a match switches the profile with a
+  notice. Turn it off to stay in the profile you picked.
+- **Starting with a profile**: `start.bat -Profile meeting` (or `start.ps1 -Profile meeting`), or
+  `panel_server.py --profile meeting`, or the `PRESENTER_PROFILE` variable, or `"profile"` in the config,
+  in that order; otherwise the first profile. A `meeting.bat` next to `start.bat`:
+
+  ```bat
+  @echo off
+  call "%~dp0start.bat" -Profile meeting
+  ```
+
+  If the panel server is already running, `-Profile` asks every open panel window to switch once. After
+  that, F5 keeps whatever profile you picked by hand. A startup profile (`-Profile`, `--profile`,
+  `PRESENTER_PROFILE` or `"profile"` in the config) is applied once per server start; a restart without
+  any of them leaves each panel on the profile it showed. A panel window opened later (a new window, not
+  F5) also obeys the current start's profile once, even if another window was switched by hand.
+  In a `.bat` file prefer ASCII profile names: a Chinese name there needs the file saved as UTF-8 and
+  `chcp 65001 >nul` before the `call`.
+- Profiles added, renamed or removed in `config.json` show up in the chip by themselves (no F5), and
+  their notes, pacing and rules reload live like before.
 
 ## Try auto-follow with the demo site
 
@@ -277,7 +331,8 @@ Self-test pages for the mirror itself are in [`web/selftest/`](web/selftest/READ
 
 `config.example.json` is the only config in the repository; your `config.json` is gitignored.
 Keys starting with `_` are comments. Coordinates are physical pixels. Restart after changes,
-except `notes_files`, `pacing_file` and `notes_rules`, which reload live (press F5 in the panel for files).
+except `notes_files`, `pacing_file`, `pacing_notes`, `notes_rules`, `profile_name`, `profiles` and
+`profile_auto_switch`, which reload live (press F5 in the panel for a changed list of notes files).
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -305,6 +360,10 @@ except `notes_files`, `pacing_file` and `notes_rules`, which reload live (press 
 | `notes_auto_follow` / `notes_follow_doc` | `true` / `""` | Auto-follow default; which notes file to follow in (empty = the one you are viewing) |
 | `cdp_url` | `""` | DevTools endpoint for URL rules; empty = title rules only |
 | `notes_rules` | examples | Auto-follow rules |
+| `pacing_notes` | `""` | A notes file used as the pacing when `pacing_file` is empty (`Suggested time: ~N min` per `##` section) |
+| `profile_name` / `profiles` | `default` / `[]` | Name of the profile formed by the keys above; more profiles, each with `name`, `notes_files`, `pacing_file` or `pacing_notes`, `notes_rules`, `notes_follow_doc` ([Profiles](#profiles-a-talk-and-a-meeting-in-one-panel)) |
+| `profile` | `""` | Startup profile (empty = the first); `--profile` / `PRESENTER_PROFILE` / `start.bat -Profile` win |
+| `profile_auto_switch` | `true` | Auto-follow may switch to another profile whose rule matches the projected page |
 | `ai_helper` | `enabled: false` | `claude_bin`, `model`, `timeout_sec`, `extra_args`, `workdir`, `system_prompt` |
 
 ## Optional: run the panel server in WSL
@@ -395,9 +454,9 @@ scripts/check/scan-private.sh --all
 |---|---|
 | `mirror.py` | Windows: source selection, capture, scaling, projector window, pointer, hotkeys, AppBar |
 | `panel_server.py` | Panel web server and AI helper backend (standard library only) |
-| `presenter_sidecar/` | Pure modules: geometry, window rules, notes rules, hotkeys, config, CDP, messages |
+| `presenter_sidecar/` | Pure modules: geometry, window rules, notes rules, profiles, hotkeys, config, CDP, preview, messages |
 | `web/` | Panel front end (`index.html`, `panel.js`, `panel.css`; DOM-free `md.js`, `steps.js` and `view.js`, tested under node) and `selftest/` pages |
-| `examples/` | Mock talk notes (English and 繁體中文), checklist, pacing, demo site |
+| `examples/` | Mock talk notes (English and 繁體中文), meeting notes (a second profile), checklist, pacing, demo site |
 | `start.ps1` / `stop.ps1` (`.bat`) | Start and stop everything |
 | `tests/` | Unit tests; `test_panel_ui.py` drives the panel in headless Chromium when Playwright is installed |
 | `scripts/media/` | Re-generates the mock screenshots in `docs/media/` (headless; needs `playwright` and `pillow`) |

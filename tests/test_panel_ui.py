@@ -72,19 +72,37 @@ def browser():
         b.close()
 
 
-def make_env(tmp_path, lang="en"):
+def make_env(tmp_path, lang="en", profile=None, **over):
     cfg = json.loads((ROOT / "config.example.json").read_text(encoding="utf-8"))
     cfg["content_root"] = str(ROOT)
     cfg["ui_lang"] = lang
+    cfg.update(over)
     p = tmp_path / "config.json"
     p.write_text(json.dumps(cfg), encoding="utf-8")
     logs = tmp_path / "logs"
     logs.mkdir()
     (logs / PREVIEW_FILE).write_bytes(jpeg())
-    app = panel_server.App(p, logs=logs)
+    app = panel_server.App(p, logs=logs, profile=profile)
     srv = panel_server.make_server(app, "127.0.0.1", 0)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return app, srv, FakeMirror(app)
+
+
+@pytest.fixture()
+def env_factory(tmp_path):
+    made = []
+
+    def make(**kw):
+        sub = tmp_path / f"env{len(made)}"
+        sub.mkdir()
+        app, srv, mirror = make_env(sub, **kw)
+        made.append((srv, mirror))
+        return app, srv.server_address[1], mirror
+    yield make
+    for srv, mirror in made:
+        mirror.stop = True
+        srv.shutdown()
+        srv.server_close()
 
 
 @pytest.fixture()
@@ -390,3 +408,179 @@ def test_preview_is_hidden_when_turned_off_or_deleted(browser, env):
     pn.page.wait_for_function("document.querySelector('#previewEmpty').textContent === 'No image yet'", timeout=3000)
     assert pn.page.locator("#previewImg").is_hidden()
     pn.close()
+
+
+# ---------------------------------------------------------------- profiles
+STAGES = "[...document.querySelectorAll('#stages button')].map(b => b.textContent)"
+DOCS = "[...document.querySelectorAll('#docs button')].map(b => b.textContent)"
+
+
+def switch_profile(pn, name):
+    pn.page.select_option("#profileSel", name)
+    pn.page.wait_for_function("(n) => profile === n && !switching", arg=name, timeout=3000)
+
+
+def test_profile_switch_changes_notes_stages_and_rules_together(browser, env):
+    _, port, _ = env
+    pn = Panel(browser, port)
+    sel = pn.page.locator("#profileSel")
+    assert sel.is_visible() and sel.input_value() == "talk"
+    assert [o.strip() for o in sel.locator("option").all_inner_texts()] == ["talk", "meeting"]
+    assert pn.page.evaluate(STAGES)[:2] == ["Intro", "Demo A"]
+    switch_profile(pn, "meeting")
+    assert pn.page.evaluate(STAGES) == ["Part 1", "Part 2", "Part 3", "Part 4"]
+    assert pn.page.evaluate(DOCS) == ["meeting"]
+    assert "Weekly sync" in pn.page.locator("#note").inner_text()
+    pn.page.locator("#note").click()
+    pn.page.keyboard.press("ArrowRight")  # the keys page the meeting notes now
+    assert pn.page.locator("#secSel").input_value() == "1"
+    switch_profile(pn, "talk")
+    assert pn.page.evaluate(STAGES)[0] == "Intro" and len(pn.page.evaluate(DOCS)) == 3
+    pn.reload()  # the profile picked by hand survives F5
+    assert pn.page.locator("#profileSel").input_value() == "talk"
+    pn.close()
+
+
+def test_timers_are_kept_per_profile(browser, env):
+    _, port, _ = env
+    pn = Panel(browser, port)
+    page = pn.page
+    page.click("#btnStart")
+    talk = page.evaluate("JSON.parse(JSON.stringify(timer))")
+    assert talk["cur"] == 0 and talk["classStart"]
+    switch_profile(pn, "meeting")
+    assert page.locator("#stageName").inner_text() == "Not started"
+    page.click("#btnStart")
+    page.click("#btnNext")
+    assert page.locator("#stageName").inner_text().startswith("Part 2")
+    switch_profile(pn, "talk")
+    assert page.evaluate("JSON.parse(JSON.stringify(timer))") == talk  # untouched by the meeting timer
+    assert page.locator("#stageName").inner_text().startswith("Intro")
+    pn.reload()
+    switch_profile(pn, "meeting")
+    assert page.evaluate("timer.cur") == 1
+    pn.close()
+
+
+def test_auto_follow_switches_profile_with_a_notice(browser, env):
+    _, port, mirror = env
+    pn = Panel(browser, port)  # baseline target: the talk's Demo C (not followed on open)
+    assert pn.page.locator("#profileSel").input_value() == "talk"
+    mirror.status["source_title"] = "Sprint board - Google Chrome"
+    pn.page.wait_for_function("profile === 'meeting' && !switching", timeout=4000)
+    pn.page.wait_for_function("sections[secIdx] && sections[secIdx].title.includes('Board walk')", timeout=2000)
+    assert pn.page.evaluate(STAGES)[1] == "Part 2"
+    assert "Profile switched to meeting" in pn.page.locator("#toast").inner_text()
+    # And back when the talk's page is projected again.
+    mirror.status["source_title"] = "Plant-care App · Q&A - Google Chrome"
+    pn.page.wait_for_function("profile === 'talk' && !switching", timeout=4000)
+    pn.page.wait_for_function("sections[secIdx] && sections[secIdx].title.includes('Q&A')", timeout=2000)
+    pn.close()
+
+
+def test_auto_switch_can_be_turned_off(browser, env_factory):
+    _, port, mirror = env_factory(profile_auto_switch=False)
+    pn = Panel(browser, port)
+    mirror.status["source_title"] = "Sprint board - Google Chrome"
+    pn.page.wait_for_timeout(2500)
+    assert pn.page.evaluate("profile") == "talk"
+    pn.close()
+
+
+def test_startup_profile_request_wins_once_then_f5_keeps_your_choice(browser, env_factory):
+    app, port, _ = env_factory(profile="meeting")  # panel_server --profile meeting
+    pn = Panel(browser, port)
+    assert pn.page.evaluate("profile") == "meeting" and pn.page.evaluate(STAGES)[0] == "Part 1"
+    switch_profile(pn, "talk")
+    pn.reload()
+    assert pn.page.evaluate("profile") == "talk"
+    # start.ps1 -Profile meeting while the server runs: POST /api/profile, open panels switch once.
+    pn.page.evaluate("fetch('/api/profile', {method: 'POST', headers: {'X-Panel': '1', 'Content-Type': "
+                     "'application/json'}, body: JSON.stringify({name: 'meeting'})})")
+    pn.page.wait_for_function("profile === 'meeting' && !switching", timeout=4000)
+    assert pn.page.locator("#toast").inner_text() == "Profile: meeting"
+    pn.close()
+
+
+def test_single_profile_config_hides_the_chip_and_keeps_the_0_2_timer(browser, env_factory):
+    _, port, _ = env_factory(profiles=[], profile_name="default")
+    ctx = browser.new_context(viewport={"width": 400, "height": 900})
+    ctx.add_init_script("""if (!sessionStorage.getItem('seeded')) { sessionStorage.setItem('seeded', '1');
+      localStorage.setItem('presenter.timer', JSON.stringify({cur: 1, starts: {'Demo A': Date.now() - 60000},
+                                                              classStart: Date.now() - 120000})); }""")
+    page = ctx.new_page()
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.goto(f"http://127.0.0.1:{port}/")
+    page.wait_for_function("document.querySelector('#secSel').options.length > 0")
+    assert not page.locator("#profileSel").is_visible()
+    assert page.locator("#stageName").inner_text().startswith("Demo A")  # 0.2.0 timer read for the first profile
+    assert page.evaluate("profile") == "default"
+    ctx.close()
+    assert not errors
+
+
+def test_server_restart_without_a_request_keeps_the_hand_picked_profile(browser, env):
+    app, port, _ = env  # no --profile: the request has no id
+    pn = Panel(browser, port)
+    switch_profile(pn, "meeting")
+    app.boot = "restarted"  # what a plain restart changes
+    pn.reload()
+    pn.page.wait_for_timeout(1000)
+    assert pn.page.evaluate("profile") == "meeting"
+    pn.close()
+
+
+def test_a_profile_added_to_the_config_appears_without_f5(browser, env):
+    app, port, _ = env
+    pn = Panel(browser, port)
+    cfg = json.loads(app.cfg_path.read_text(encoding="utf-8"))
+    cfg["profiles"].append({"name": "會議", "notes_files": ["examples/notes/checklist.md"]})
+    app.cfg_path.write_text(json.dumps(cfg, ensure_ascii=False), encoding="utf-8")
+    st = app.cfg_path.stat()
+    os.utime(app.cfg_path, (st.st_atime, st.st_mtime + 5))
+    pn.page.wait_for_function("profileNames.includes('會議')", timeout=4000)
+    switch_profile(pn, "會議")
+    assert pn.page.evaluate(DOCS) == ["checklist"]
+    pn.close()
+
+
+def test_every_open_panel_obeys_a_profile_request(browser, env_factory):
+    _, port, _ = env_factory()
+    ctx = browser.new_context(viewport={"width": 400, "height": 900})
+    pages = [ctx.new_page(), ctx.new_page()]  # two panel windows, one shared localStorage
+    for pg in pages:
+        pg.goto(f"http://127.0.0.1:{port}/")
+        pg.wait_for_function("document.querySelector('#secSel').options.length > 0")
+    pages[0].evaluate("fetch('/api/profile', {method: 'POST', headers: {'X-Panel': '1', 'Content-Type': "
+                      "'application/json'}, body: JSON.stringify({name: 'meeting'})})")
+    for pg in pages:
+        pg.wait_for_function("profile === 'meeting' && !switching", timeout=4000)
+    ctx.close()
+
+
+def test_config_profile_applies_on_the_next_server_start(browser, env):
+    # Review repro: a panel opened before with "profile": "" (talk); then "profile": "meeting" and a restart.
+    app, port, _ = env
+    ctx = browser.new_context(viewport={"width": 400, "height": 900})
+    first = ctx.new_page()
+    first.goto(f"http://127.0.0.1:{port}/")
+    first.wait_for_function("profile === 'talk' && !switching")
+    first.close()
+    cfg = json.loads(app.cfg_path.read_text(encoding="utf-8"))
+    cfg["profile"] = "meeting"
+    app.cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+    st = app.cfg_path.stat()
+    os.utime(app.cfg_path, (st.st_atime, st.st_mtime + 5))
+    app.boot = "restarted"
+    page = ctx.new_page()  # a fresh panel window: same localStorage ("profile": talk), new session
+    page.goto(f"http://127.0.0.1:{port}/")
+    page.wait_for_function("profile === 'meeting' && !switching", timeout=4000)
+    # Applied once: a profile picked by hand afterwards survives F5.
+    page.select_option("#profileSel", "talk")
+    page.wait_for_function("profile === 'talk' && !switching")
+    page.reload()
+    page.wait_for_function("document.querySelector('#secSel').options.length > 0")
+    page.wait_for_timeout(1000)
+    assert page.evaluate("profile") == "talk"
+    ctx.close()
