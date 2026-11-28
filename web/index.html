@@ -17,26 +17,38 @@
     <button id="fontUp" class="icon" data-i18n-title="font.up">A+</button>
     <button id="keysBtn" class="icon" data-i18n-title="keys.tip" data-i18n-aria="keys.open" aria-haspopup="dialog">⌨</button>
   </div>
-  <div id="srcline" class="srcline small"><span class="muted" data-i18n="src.label"></span><span id="srcTitle">—</span></div>
-  <div id="srcWarn" class="srcwarn small" hidden></div>
-  <div id="stages" class="stages"></div>
-  <div class="stageinfo">
-    <div class="stageline">
-      <b id="stageName"></b>
-      <span id="stageTime" class="mono">00:00 / 00:00</span>
+  <!-- Collapsible blocks: the header button toggles the body; state per block in localStorage
+       (defaults in view.js). A collapsed block shows a one-line summary in its header. -->
+  <section class="fold" data-fold="source">
+    <button type="button" class="foldhead" aria-expanded="true" aria-controls="sourceBody"><span class="chev" aria-hidden="true">▾</span><span class="foldtitle" data-i18n="fold.source"></span><span id="sourceSum" class="foldsum"></span></button>
+    <div class="foldbody" id="sourceBody">
+      <div id="srcline" class="srcline small"><span class="muted" data-i18n="src.label"></span><span id="srcTitle">—</span></div>
+      <div id="srcWarn" class="srcwarn small" hidden></div>
     </div>
-    <div class="bar"><div id="stageBar"></div></div>
-    <div class="stageline small">
-      <span id="stageDetail" class="muted"></span>
+  </section>
+  <section class="fold" data-fold="timer">
+    <button type="button" class="foldhead" aria-expanded="true" aria-controls="timerBody"><span class="chev" aria-hidden="true">▾</span><span class="foldtitle" data-i18n="fold.timer"></span><span id="timerSum" class="foldsum"></span></button>
+    <div class="foldbody" id="timerBody">
+      <div id="stages" class="stages"></div>
+      <div class="stageinfo">
+        <div class="stageline">
+          <b id="stageName"></b>
+          <span id="stageTime" class="mono">00:00 / 00:00</span>
+        </div>
+        <div class="bar"><div id="stageBar"></div></div>
+        <div class="stageline small">
+          <span id="stageDetail" class="muted"></span>
+        </div>
+        <div class="stageline small">
+          <span class="muted"><span data-i18n="timer.total"></span> <span id="classTime" class="mono">00:00</span></span>
+          <span class="spacer"></span>
+          <button id="btnStart" data-i18n="timer.start"></button>
+          <button id="btnNext" data-i18n="timer.next"></button>
+          <button id="btnResetTimer" class="ghost" data-i18n-title="timer.reset">↺</button>
+        </div>
+      </div>
     </div>
-    <div class="stageline small">
-      <span class="muted"><span data-i18n="timer.total"></span> <span id="classTime" class="mono">00:00</span></span>
-      <span class="spacer"></span>
-      <button id="btnStart" data-i18n="timer.start"></button>
-      <button id="btnNext" data-i18n="timer.next"></button>
-      <button id="btnResetTimer" class="ghost" data-i18n-title="timer.reset">↺</button>
-    </div>
-  </div>
+  </section>
   <nav class="tabs">
     <button data-tab="notes" class="active" data-i18n="tab.notes"></button>
     <button data-tab="ai" id="tabAi" data-i18n="tab.ai"></button>
@@ -45,30 +57,40 @@
 
 <main>
   <section id="tab-notes" class="tab active">
-    <div class="docbar">
-      <span id="docs"></span>
-      <span class="spacer"></span>
-      <button id="followBtn" data-i18n-title="follow.tip"></button>
-    </div>
-    <div class="secnav">
-      <button id="prev" data-i18n-title="nav.prev">◀</button>
-      <select id="secSel"></select>
-      <button id="next" data-i18n-title="nav.next">▶</button>
-    </div>
-    <div id="stepnav" class="secnav stepnav" hidden>
-      <button id="stepPrev" data-i18n-title="step.prev">◀</button>
-      <select id="stepSel" data-i18n-title="step.tip"></select>
-      <button id="stepNext" data-i18n-title="step.next">▶</button>
-    </div>
-    <div id="stageHint" class="hint" hidden></div>
+    <section class="fold pad" data-fold="nav">
+      <button type="button" class="foldhead" aria-expanded="true" aria-controls="navBody"><span class="chev" aria-hidden="true">▾</span><span class="foldtitle" data-i18n="fold.nav"></span><span id="navSum" class="foldsum"></span></button>
+      <div class="foldbody" id="navBody">
+        <div class="docbar">
+          <span id="docs"></span>
+          <span class="spacer"></span>
+          <button id="followBtn" data-i18n-title="follow.tip"></button>
+        </div>
+        <div class="secnav">
+          <button id="prev" data-i18n-title="nav.prev">◀</button>
+          <select id="secSel"></select>
+          <button id="next" data-i18n-title="nav.next">▶</button>
+        </div>
+        <div id="stepnav" class="secnav stepnav" hidden>
+          <button id="stepPrev" data-i18n-title="step.prev">◀</button>
+          <select id="stepSel" data-i18n-title="step.tip"></select>
+          <button id="stepNext" data-i18n-title="step.next">▶</button>
+        </div>
+        <div id="stageHint" class="hint" hidden></div>
+      </div>
+    </section>
     <article id="note" class="md"></article>
   </section>
 
   <section id="tab-ai" class="tab">
-    <div id="chat" class="chat">
-      <div class="msg sys" id="aiIntro"></div>
-    </div>
-    <div id="progress" class="progress" hidden></div>
+    <section class="fold pad grow" data-fold="chat">
+      <button type="button" class="foldhead" aria-expanded="true" aria-controls="chatBody"><span class="chev" aria-hidden="true">▾</span><span class="foldtitle" data-i18n="fold.chat"></span><span id="chatSum" class="foldsum"></span></button>
+      <div class="foldbody" id="chatBody">
+        <div id="chat" class="chat">
+          <div class="msg sys" id="aiIntro"></div>
+        </div>
+        <div id="progress" class="progress" hidden></div>
+      </div>
+    </section>
     <form id="askForm" class="ask">
       <textarea id="q" rows="3" data-i18n-placeholder="ai.placeholder"></textarea>
       <div class="askbtns">
@@ -81,6 +103,20 @@
     </form>
   </section>
 </main>
+<!-- Projector preview: docked at the bottom edge, below the notes / AI helper (collapsed: one header row). -->
+<footer id="dock" class="dock">
+  <section class="fold" data-fold="preview">
+    <button type="button" class="foldhead" aria-expanded="true" aria-controls="previewBody"><span class="chev" aria-hidden="true">▾</span><span class="foldtitle" data-i18n="fold.preview"></span><span id="previewSum" class="foldsum"></span></button>
+    <div class="foldbody" id="previewBody">
+      <div id="preview" class="preview">
+        <img id="previewImg" alt="" data-i18n-alt="preview.alt" hidden>
+        <div id="previewEmpty" class="previewempty small muted"></div>
+        <div id="previewBadges" class="pbadges"></div>
+      </div>
+      <div class="previewmeta small"><span id="previewNote" class="muted"></span><span class="spacer"></span><span id="previewAge" class="muted mono"></span></div>
+    </div>
+  </section>
+</footer>
 <div id="keysOverlay" class="keys" role="dialog" aria-modal="true" aria-labelledby="keysTitle" hidden>
   <div class="keyshead"><b id="keysTitle" data-i18n="keys.title"></b><span class="spacer"></span><button id="keysClose" class="icon" data-i18n-title="keys.close" data-i18n-aria="keys.closeShort">✕</button></div>
   <h3 data-i18n="keys.global"></h3>
@@ -92,6 +128,7 @@
 <div id="toast" class="toast" hidden></div>
 <script src="md.js"></script>
 <script src="steps.js"></script>
+<script src="view.js"></script>
 <script src="panel.js"></script>
 </body>
 </html>
