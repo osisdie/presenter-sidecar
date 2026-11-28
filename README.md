@@ -37,6 +37,7 @@ All screenshots are mock content rendered from [`examples/`](examples/) by
 - [Quick start](#quick-start)
 - [Hotkeys](#hotkeys)
 - [Choosing the source window](#choosing-the-source-window)
+- [Menus and region mode](#menus-and-region-mode)
 - [The panel](#the-panel)
 - [Profiles: a talk and a meeting in one panel](#profiles-a-talk-and-a-meeting-in-one-panel)
 - [Try auto-follow with the demo site](#try-auto-follow-with-the-demo-site)
@@ -124,6 +125,7 @@ failed to register).
 | **Ctrl+Alt+PgDn / PgUp** | Next / previous notes section, without leaving your window (`next` / `prev`) |
 | **Ctrl+Alt+P** | Auto-follow popups on / off (`popups`) |
 | **Ctrl+Alt+L** | Confine the mouse to the laptop display on / off (`clip`) |
+| **Ctrl+Alt+R** | Region mode on / off: project the window's screen area, menus and dialogs included (`region`; see [Menus and region mode](#menus-and-region-mode)) |
 | **Ctrl+Alt+Q** | Quit the mirror (`quit`; the panel stays open, use `stop.bat` to close everything) |
 
 - The big pointer is drawn only when the mouse is really over the source window, not over the
@@ -153,6 +155,34 @@ failed to register).
      costs nothing while the window does not change.
   2. **PrintWindow** (`PW_RENDERFULLCONTENT`): used when WGC is not available; also works when covered.
   3. **mss**: last resort; captures the screen area only while nothing covers the window.
+
+## Menus and region mode
+
+Right-click menus, Windows 11 context menus, tray and taskbar menus, many drop-downs and tooltips are
+separate windows, so window capture never sees them. Two ways to show them:
+
+- **Menu overlay** (`menu_overlay`, on by default): menus that overlap the projected window are copied
+  from the screen and pasted onto the projector, at the same place and scale as the window. It works for
+  any program's menus (Explorer's belong to `explorer.exe`, not to the window), never for the panel's own
+  menus, and follows a projected popup. A menu that sticks out of the window is cut at the window's edge:
+  nothing outside the projected window reaches the projector. While frozen (F8) the projector keeps the
+  menus it showed when you pressed F8; the blank screen (F9) shows none.
+  - The window classes treated as menus are in `menu_overlay_classes`: `#32768` (Win32 menus, tray and taskbar menus), `Chrome_WidgetWin_2` (Chrome / Edge menus and drop-downs), `Xaml_WindowedPopupClass` and `Microsoft.UI.Content.PopupWindowSiteBridge` (Windows 11 context menus), `DropDown`, `ComboLBox`, `tooltips_class32`, `MozillaDropShadowWindowClass` (Firefox), `Net UI Tool Window` (Office).
+  - A menu that is still missing? `logs/mirror.log` names, once per class, popup windows over the projected
+    window that were not pasted (`popup class not pasted: '...'`). Add that class to `menu_overlay_classes`.
+    `menu_overlay_heuristic: true` also pastes unknown small captionless tool / topmost popups (off by
+    default: those can be other programs' floating windows).
+  - Set `"menu_overlay": false` to turn it off.
+- **Region mode** (hotkey `region`, default **Ctrl+Alt+R**; `"region_mode": true` starts in it): instead of
+  the window, the mirror copies the window's rectangle on the screen every frame, so *everything* on top
+  of it is projected: menus, Save As and file pickers, system dialogs, tooltips, notifications. The menu
+  overlay is not needed and is skipped. The panel shows a **Region** badge in the Source block and on the
+  projector view. The private panel is painted black if it overlaps the rectangle; any other window you
+  move over it is projected.
+  - **Anything that pops up in that rectangle is projected. Press F8 (freeze) before private actions**
+    (a password manager, a notification, another window), and F8 again afterwards.
+  - Prefer F11? Set `"region": "F11"` under `hotkeys`. It is not the default because a global hotkey
+    takes the key away from every program, and F11 is the browser's full-screen key.
 
 ## The panel
 
@@ -355,6 +385,11 @@ except `notes_files`, `pacing_file`, `pacing_notes`, `notes_rules`, `profile_nam
 | `never_source_classes` | terminals | Window classes that can never be projected |
 | `capture_backend` | `auto` | `auto`, `wgc`, `printwindow` or `mss` |
 | `follow_popups` / `popup_min_size` | `true` / `[320, 240]` | Popup following |
+| `menu_overlay` | `true` | Paste menus over the projected window ([Menus and region mode](#menus-and-region-mode)) |
+| `menu_overlay_classes` | menu classes | Window classes treated as menus |
+| `menu_overlay_heuristic` | `false` | Also paste unknown small captionless tool / topmost popups (`menu_overlay_max_size`, default `[1600, 1400]`) |
+| `menu_overlay_margin` / `menu_overlay_interval_sec` | `8` / `0.1` | How near (px) a menu must be; seconds between window scans (open menus are re-checked every frame) |
+| `region_mode` | `false` | Start in region mode (toggle: Ctrl+Alt+R) |
 | `fps` / `smooth_scale` | `25` / `true` | Frame-rate cap, scaling quality |
 | `preview_interval_sec` | `2` | Seconds between projector-preview pictures for the panel; `0` turns the preview off (min. 0.5) |
 | `preview_width` / `preview_quality` | `480` / `70` | Preview width in px (never upscaled) and JPEG quality (10–95) |
@@ -399,9 +434,12 @@ only `python3` is needed.
 
 ## Limitations
 
-- **One window (plus its popups).** Right-click menus, the address-bar drop-down and extension
-  popups are separate small windows and are not projected. Dialogs inside a web page are part of
-  the window and are projected.
+- **One window (plus its popups and menus).** Menus of the listed classes are pasted over it
+  ([Menus and region mode](#menus-and-region-mode)), cut at the window's edge; other separate small
+  windows (extension popups, an unknown menu class) need region mode. Dialogs inside a web page are part
+  of the window and are projected.
+- The menu overlay and region mode copy the screen, so a menu shows the hover highlight but not the
+  real cursor, and a window covering the menu is copied with it (region mode: by design).
 - **System dialogs** (Save As, file pickers) belong to the source process but are often small or
   untitled; press F7 on them if needed, then F7 back. Windows UAC prompts, the lock screen and
   Ctrl+Alt+Del run on the secure desktop and are never captured.
@@ -437,6 +475,11 @@ only `python3` is needed.
 
   presenter-sidecar only accepts loopback `cdp_url` values and, per tab, evaluates one read-only
   expression (`document.visibilityState`, `document.hasFocus()`, `location.href`).
+- **Region mode projects a screen area, not a window**: whatever appears inside the projected window's
+  rectangle (notifications, a password manager, another window dragged over it) is projected. Press F8
+  (freeze) before private actions. The panel is blacked out if it overlaps; the badge in the panel shows
+  when region mode is on. The menu overlay pastes only windows of menu classes over the projected window,
+  never the panel's.
 - **Hidden from the audience**: source titles, warnings and notices appear only in the panel.
 - **Projector preview**: `logs/mirror.preview.jpg` holds a small copy of what is on the projector, so it
   contains screen content. It stays on this computer in `logs/` (gitignored, and denied to the AI helper),

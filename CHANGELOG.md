@@ -68,6 +68,27 @@ All notable changes to this project are documented here. The format follows
   - `presenter_sidecar/commands.py`: a generic, whitelisted panel → mirror channel (`MIRROR_ACTIONS`,
     `CommandQueue`, the mirror's `Inbox`; `tests/test_commands.py`); `windows.focus_target`; `view.js`
     `focusToast` / `activatesButton`.
+- Menu overlay (`menu_overlay`, on by default): right-click menus, Windows 11 context menus, tray / taskbar
+  menus, drop-downs and tooltips are separate windows that window capture never shows; the mirror now pastes
+  them onto the projector.
+  - A window scan every `menu_overlay_interval_sec` (0.1 s) finds visible windows of `menu_overlay_classes`
+    (`#32768`, `Chrome_WidgetWin_2`, `Xaml_WindowedPopupClass`, `Microsoft.UI.Content.PopupWindowSiteBridge`,
+    `DropDown`, `ComboLBox`, `tooltips_class32`, `MozillaDropShadowWindowClass`, `Net UI Tool Window`;
+    `SysShadow` never) over or within `menu_overlay_margin` (8 px) of the projected window, from any process;
+    found menus are re-checked every frame and grabbed with mss.
+  - Placed with the frame's own letterbox mapping (same as the pointer) and cut at the projected window's edge.
+  - Never the panel's menus (its process, its rect, its windows). Follows a projected popup; F8 keeps the
+    menus of the frozen frame, F9 shows none. The pointer is drawn over pasted menus.
+  - Popup classes over the window that are not pasted are logged once each, to extend the list;
+    `menu_overlay_heuristic` (off) also pastes unknown small captionless tool / topmost popups.
+  - `presenter_sidecar/overlay.py` (pure rules and rect mapping; `tests/test_overlay.py`).
+- Region mode (hotkey `region`, default Ctrl+Alt+R; `region_mode` to start in it): projects a screen copy of
+  the projected window's rectangle every frame, so menus, file pickers, system dialogs and anything else on
+  top are shown. Anything that pops up there is projected: press F8 before private actions. The private panel
+  is painted black where it overlaps. The menu overlay is skipped in this mode.
+  - Status: `capture_mode` (`window` / `region`), `menu_overlay`, `menus`.
+  - Panel: a Region / 區域 badge in the Source line (with a tooltip about F8), in the closed Source summary and on
+    the projector view; the ⌨ overlay lists the new hotkey.
 
 ### Fixed
 
