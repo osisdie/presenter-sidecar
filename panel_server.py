@@ -6,7 +6,8 @@
 - GET  /api/config       UI settings (language, hotkeys, AI helper on/off)
 - GET  /api/notes        speaker notes (only the files listed in notes_files)
 - GET  /api/pacing       per-section minutes parsed from pacing_file
-- GET  /api/state        mirror status + notes target + queued hotkey commands
+- GET  /api/state        mirror status + notes target + queued hotkey commands + preview age
+- GET  /api/preview      small JPEG of the projector written by mirror.py (logs/, local only)
 - POST /api/mirror       mirror.py reports its status
 - POST /api/cmd          mirror.py forwards notes paging hotkeys
 - POST /api/panel        panel reports which section it shows
@@ -36,11 +37,13 @@ from presenter_sidecar import PANEL_TITLE, __version__, cdp
 from presenter_sidecar.config import ROOT, config_path, content_root, load_config, resolve
 from presenter_sidecar.i18n import t
 from presenter_sidecar.notes import choose_active_tab, clean_title, notes_target, parse_pacing, projected_title
+from presenter_sidecar.preview import PREVIEW_FILE
 
 WEB = ROOT / "web"
 LOGS = ROOT / "logs"
 SESSION_FILE = LOGS / "claude_session.txt"
 IS_WINDOWS = os.name == "nt"
+MIRROR_STALE_SECS = 4  # the mirror reports every second; older status = not connected
 
 DEFAULT_SYSTEM_PROMPT = """You are a live assistant for a presenter. Only the presenter sees your answers, in a side panel, while they are speaking.
 Rules:
@@ -108,8 +111,9 @@ def kill_tree(proc: subprocess.Popen) -> None:
 
 # ---------------------------------------------------------------- application state
 class App:
-    def __init__(self, cfg_path: Path | None = None, root: Path = ROOT):
+    def __init__(self, cfg_path: Path | None = None, root: Path = ROOT, logs: Path | None = None):
         self.root = root
+        self.logs = Path(logs) if logs else LOGS
         self.cfg_path = Path(cfg_path) if cfg_path else config_path(root)
         self.cfg = load_config(self.cfg_path, root)
         self.cfg_mtime = self._mtime()
@@ -200,7 +204,7 @@ class App:
 
     def notes_target(self, mirror: dict, age: float | None) -> dict | None:
         cfg = self.live_cfg()
-        if not mirror or age is None or age > 4:
+        if not mirror or age is None or age > MIRROR_STALE_SECS:
             return None
         title = clean_title(projected_title(mirror))
         if not title:
@@ -209,6 +213,34 @@ class App:
         if cfg.get("cdp_url"):
             url, tab_id = choose_active_tab(self.cdp_tabs(cfg["cdp_url"]), title, self.tab_live, self._last_active)
         return notes_target(cfg.get("notes_rules") or [], title, url, tab_id, cfg.get("notes_follow_doc", ""))
+
+    # ---- projector preview (mirror.py writes logs/mirror.preview.jpg atomically)
+    def preview_path(self) -> Path:
+        return self.logs / PREVIEW_FILE
+
+    def preview_state(self, mirror: dict, age: float | None) -> dict:
+        """``age``: seconds since the mirror last confirmed the image matches the projector.
+
+        While the mirror is connected it is the mirror's own relative age plus the age of its status,
+        so no Windows and WSL clocks are compared; otherwise the file's mtime (an old image anyway).
+        ``enabled`` is None when the mirror did not say (not connected, or a mirror before 0.3.0).
+        """
+        try:
+            mtime = self.preview_path().stat().st_mtime
+        except OSError:
+            mtime = None
+        pv = mirror.get("preview") if isinstance(mirror, dict) else None
+        connected = age is not None and age <= MIRROR_STALE_SECS
+        enabled = bool(pv.get("enabled")) if connected and isinstance(pv, dict) else None
+        rel = pv.get("age") if connected and isinstance(pv, dict) else None
+        if isinstance(rel, (int, float)) and not isinstance(rel, bool):
+            img_age = max(0.0, float(rel)) + age
+        elif mtime is not None and not connected:
+            img_age = max(0.0, time.time() - mtime)
+        else:
+            img_age = None
+        return {"available": mtime is not None, "enabled": enabled,
+                "age": None if img_age is None else round(img_age, 1)}
 
     def web_version(self) -> str:
         try:
@@ -234,7 +266,8 @@ class Handler(BaseHTTPRequestHandler):
     app: App  # set by make_server
 
     def log_message(self, fmt, *args):
-        if "/api/state" in (str(args[0]) if args else "") or "/api/mirror" in (str(args[0]) if args else ""):
+        line = str(args[0]) if args else ""
+        if "/api/state" in line or "/api/mirror" in line or "/api/preview" in line:  # polled: too chatty
             return
         sys.stderr.write("%s %s\n" % (time.strftime("%H:%M:%S"), fmt % args))
 
@@ -287,7 +320,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"mirror": mirror, "mirror_age": age, "cmds": cmds, "busy": busy, "session": sess,
                                "notes_target": app.notes_target(mirror, age),
                                "notes_auto_follow_default": bool(cfg.get("notes_auto_follow", True)),
-                               "web_version": app.web_version(), "panel": panel})
+                               "web_version": app.web_version(), "panel": panel,
+                               "preview": app.preview_state(mirror, age)})
+        if path == "/api/preview":
+            return self._preview()
         rel = "index.html" if path in ("/", "") else path.lstrip("/")
         f = (WEB / rel).resolve()
         if WEB.resolve() not in f.parents or not f.is_file():
@@ -298,6 +334,21 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype + ("; charset=utf-8" if ctype.startswith("text") else ""))
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _preview(self):
+        """The projector preview. Screen content: never cached, and other sites cannot embed it."""
+        try:
+            data = self.app.preview_path().read_bytes()
+        except OSError:
+            return self._json({"error": "no preview"}, 404)
+        self.send_response(200)
+        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+        self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
         self.wfile.write(data)
 

@@ -37,6 +37,11 @@
   "fps": 25,
   "smooth_scale": true,
 
+  "_preview": "Panel preview of what the audience sees: a small JPEG of the projector every preview_interval_sec seconds (0 = off), saved only in logs/ (gitignored, deleted when the mirror stops), never uploaded.",
+  "preview_interval_sec": 2,
+  "preview_width": 480,
+  "preview_quality": 70,
+
   "pointer_style": "ring",
   "pointer_ring_radius": 46,
   "pointer_ring_color": [255, 214, 0],

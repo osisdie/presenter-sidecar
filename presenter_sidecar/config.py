@@ -48,6 +48,10 @@ DEFAULTS: dict = {
     "popup_min_size": [320, 240],
     "fps": 25,
     "smooth_scale": True,
+    # Panel preview of the projector (logs/mirror.preview.jpg): seconds between samples, 0 = off.
+    "preview_interval_sec": 2,
+    "preview_width": 480,
+    "preview_quality": 70,
     "pointer_style": "ring",
     "pointer_ring_radius": 46,
     "pointer_ring_color": [255, 214, 0],
