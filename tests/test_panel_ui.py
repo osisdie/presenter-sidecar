@@ -557,3 +557,30 @@ def test_every_open_panel_obeys_a_profile_request(browser, env_factory):
     for pg in pages:
         pg.wait_for_function("profile === 'meeting' && !switching", timeout=4000)
     ctx.close()
+
+
+def test_config_profile_applies_on_the_next_server_start(browser, env):
+    # Review repro: a panel opened before with "profile": "" (talk); then "profile": "meeting" and a restart.
+    app, port, _ = env
+    ctx = browser.new_context(viewport={"width": 400, "height": 900})
+    first = ctx.new_page()
+    first.goto(f"http://127.0.0.1:{port}/")
+    first.wait_for_function("profile === 'talk' && !switching")
+    first.close()
+    cfg = json.loads(app.cfg_path.read_text(encoding="utf-8"))
+    cfg["profile"] = "meeting"
+    app.cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+    st = app.cfg_path.stat()
+    os.utime(app.cfg_path, (st.st_atime, st.st_mtime + 5))
+    app.boot = "restarted"
+    page = ctx.new_page()  # a fresh panel window: same localStorage ("profile": talk), new session
+    page.goto(f"http://127.0.0.1:{port}/")
+    page.wait_for_function("profile === 'meeting' && !switching", timeout=4000)
+    # Applied once: a profile picked by hand afterwards survives F5.
+    page.select_option("#profileSel", "talk")
+    page.wait_for_function("profile === 'talk' && !switching")
+    page.reload()
+    page.wait_for_function("document.querySelector('#secSel').options.length > 0")
+    page.wait_for_timeout(1000)
+    assert page.evaluate("profile") == "talk"
+    ctx.close()

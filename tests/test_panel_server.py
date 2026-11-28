@@ -355,3 +355,18 @@ def test_an_unknown_cli_profile_is_no_request(tmp_path):
     p = tmp_path / "config.json"
     p.write_text(json.dumps(cfg), encoding="utf-8")
     assert panel_server.App(p, profile="nope").profile_request() == {"name": "talk", "id": None}
+
+
+def test_config_profile_is_a_request_once_per_server_start(tmp_path):
+    cfg = json.loads((ROOT / "config.example.json").read_text(encoding="utf-8"))
+    cfg["profile"] = "meeting"
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps(cfg), encoding="utf-8")
+    first, second = panel_server.App(p), panel_server.App(p)
+    second.boot = first.boot + "1"  # another server start
+    req = first.profile_request()
+    assert req["name"] == "meeting" and req["id"] == f"{first.boot}-0"
+    assert second.profile_request()["id"] != req["id"]
+    cfg["profile"] = "nope"  # not a profile: no request, the first profile
+    p.write_text(json.dumps(cfg), encoding="utf-8")
+    assert panel_server.App(p).profile_request() == {"name": "talk", "id": None}

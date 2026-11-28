@@ -47,8 +47,8 @@ All notable changes to this project are documented here. The format follows
   - Auto-follow checks the active profile's rules first, then the others, and switches profile with a notice
     (`profile_auto_switch`, default on).
   - Startup profile: `panel_server.py --profile`, `PRESENTER_PROFILE`, `"profile"`; `start.bat` / `start.ps1 -Profile NAME`
-    (a running server gets `POST /api/profile` as UTF-8; every open panel window switches once; F5 and a plain server
-    restart keep a profile picked by hand). Profiles added to `config.json` appear without F5; profiles left out
+    (a running server gets `POST /api/profile` as UTF-8). A startup profile is applied once per server start
+    by each panel window; F5 and a restart without one keep a profile picked by hand. Profiles added to `config.json` appear without F5; profiles left out
     (empty top-level `notes_files`, no name, repeated name) are logged.
   - `/api/notes` and `/api/pacing` take `?profile=`; `/api/state?profile=` returns the target's `profile` and
     the startup request `profile_req`.

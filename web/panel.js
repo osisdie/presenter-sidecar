@@ -502,8 +502,9 @@ async function pollState() {
   if (switching) return;  // a profile is loading: its notes and stages are not there yet
   try {
     const st = await (await fetch("/api/state?profile=" + encodeURIComponent(profile))).json();
+    syncProfileNames(st.profiles);  // first: a request may name a profile added in this very poll
+    if (switching) return;           // the active profile was removed: the first one is loading
     if (await handleProfileRequest(st.profile_req)) return;
-    syncProfileNames(st.profiles);
     const pill = $("#mirror"), m = st.mirror || {};
     const stale = st.mirror_age == null || st.mirror_age > 4;
     pill.className = "pill";

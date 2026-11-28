@@ -295,7 +295,10 @@ under a course's timer.
   ```
 
   If the panel server is already running, `-Profile` asks every open panel window to switch once. After
-  that, F5 (and a restart of the server without `-Profile`) keeps whatever profile you picked by hand.
+  that, F5 keeps whatever profile you picked by hand. A startup profile (`-Profile`, `--profile`,
+  `PRESENTER_PROFILE` or `"profile"` in the config) is applied once per server start; a restart without
+  any of them leaves each panel on the profile it showed. A panel window opened later (a new window, not
+  F5) also obeys the current start's profile once, even if another window was switched by hand.
   In a `.bat` file prefer ASCII profile names: a Chinese name there needs the file saved as UTF-8 and
   `chcp 65001 >nul` before the `call`.
 - Profiles added, renamed or removed in `config.json` show up in the chip by themselves (no F5), and

@@ -180,11 +180,14 @@ class App:
         return find_profile(profs, name) or find_profile(profs, self.profile_request()["name"]) or profs[0]
 
     def profile_request(self) -> dict:
-        """``id`` only for an explicit request (``--profile`` / ``PRESENTER_PROFILE`` naming a real profile,
-        or ``POST /api/profile``): a plain server restart must not override a profile picked by hand."""
+        """``id`` only for an explicit request: ``--profile`` / ``PRESENTER_PROFILE`` / ``"profile"`` in the
+        config naming a real profile (applied once per server start, like ``--profile``), or
+        ``POST /api/profile``. Without one, a server restart must not override a profile picked by hand."""
         profs = self.profiles()
-        name = startup_profile(profs, self.profile_asked, self.cfg.get("profile"))
-        explicit = self.profile_req_n > 0 or find_profile(profs, self.profile_asked.strip()) is not None
+        cfg_profile = str(self.cfg.get("profile") or "").strip()
+        name = startup_profile(profs, self.profile_asked, cfg_profile)
+        explicit = (self.profile_req_n > 0 or find_profile(profs, self.profile_asked.strip()) is not None
+                    or find_profile(profs, cfg_profile) is not None)
         return {"name": name, "id": f"{self.boot}-{self.profile_req_n}" if explicit else None}
 
     def warn_profiles(self) -> None:

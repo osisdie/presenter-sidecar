@@ -47,7 +47,7 @@ function ageParts(secs) {
 
 // Profiles. names: from /api/config; saved: the profile last shown in this panel; req: the server's
 // startup profile { name, id }. id is set only for an explicit request (--profile / PRESENTER_PROFILE /
-// start.ps1 -Profile); seen: the last request id this panel obeyed. An explicit request wins once per
+// "profile" in the config / start.ps1 -Profile); seen: the last request id this panel obeyed. An explicit request wins once per
 // panel; after that, F5 (and a plain server restart: no id) keeps the profile you picked by hand.
 // Returns { name, seen, requested }.
 function pickProfile(names, saved, req, seen) {
