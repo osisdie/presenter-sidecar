@@ -131,6 +131,9 @@ failed to register).
 - Left click draws a red ripple, right click a blue one; while the left button is held the ring
   turns red.
 - With the mouse confined (default), the audience never sees the real cursor jump onto the projector.
+- Not a hotkey, but as quick: **click the Projector view** at the bottom of the panel (or Tab to it and press
+  Enter / Space) to bring the projected window to the front: the followed popup if one is projected,
+  otherwise the source window. Handy with many windows open; see [The panel](#the-panel).
 
 ## Choosing the source window
 
@@ -230,6 +233,11 @@ A small Chrome/Edge window that only you see. Title: "Presenter Panel".
   example the JPEG encoder), only the preview turns off ("Preview off"); the projector keeps running.
 - The notes always keep at least a quarter of the window: in a short panel the preview picture gets
   smaller first, down to its header row.
+- **Click the picture** (or Tab to it and press Enter / Space) to bring the projected window to the front
+  on your laptop: the followed popup while one is projected, otherwise the source window (restored if
+  minimised). The panel asks mirror.py, which acts within about a second and confirms in the Source block;
+  with nothing projected yet it tells you to press F7. Windows sometimes refuses to change the foreground
+  window; the note then asks you to click the window yourself.
 
 **Timers**
 - Sections and minutes come from `pacing_file` (see [`examples/pacing.md`](examples/pacing.md)), or from
@@ -454,7 +462,7 @@ scripts/check/scan-private.sh --all
 |---|---|
 | `mirror.py` | Windows: source selection, capture, scaling, projector window, pointer, hotkeys, AppBar |
 | `panel_server.py` | Panel web server and AI helper backend (standard library only) |
-| `presenter_sidecar/` | Pure modules: geometry, window rules, notes rules, profiles, hotkeys, config, CDP, preview, messages |
+| `presenter_sidecar/` | Pure modules: geometry, window rules, notes rules, profiles, hotkeys, config, CDP, preview, panel → mirror commands, messages |
 | `web/` | Panel front end (`index.html`, `panel.js`, `panel.css`; DOM-free `md.js`, `steps.js` and `view.js`, tested under node) and `selftest/` pages |
 | `examples/` | Mock talk notes (English and 繁體中文), meeting notes (a second profile), checklist, pacing, demo site |
 | `start.ps1` / `stop.ps1` (`.bat`) | Start and stop everything |
