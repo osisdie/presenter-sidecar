@@ -1,6 +1,6 @@
 "use strict";
 // View rules for the panel that do not touch the DOM (tests/js/view.test.js runs them under node):
-// which blocks start collapsed, and how the projector preview is shown.
+// which blocks start collapsed, how the projector preview is shown, and which profile to open.
 
 // Collapsible blocks (data-fold in index.html). Saved per block in localStorage ("fold.<name>");
 // a block never toggled uses its default here. The preview starts collapsed (it is a check, not
@@ -45,7 +45,25 @@ function ageParts(secs) {
   return s < 60 ? { n: s, unit: "s" } : { n: Math.floor(s / 60), unit: "min" };
 }
 
+// Profiles. names: from /api/config; saved: the profile last shown in this panel; req: the server's
+// startup request { name, id } (--profile / PRESENTER_PROFILE / start.ps1 -Profile); seen: the last
+// request id this panel obeyed. A new request wins once (a new start, or start.ps1 -Profile while the
+// server runs); after that, F5 keeps the profile you picked by hand. Returns { name, seen, requested }.
+function pickProfile(names, saved, req, seen) {
+  const ok = (n) => typeof n === "string" && names.includes(n);
+  if (req && req.id !== seen && ok(req.name)) return { name: req.name, seen: req.id, requested: true };
+  const next = req ? req.id : seen;
+  if (ok(saved)) return { name: saved, seen: next, requested: false };
+  return { name: req && ok(req.name) ? req.name : names[0] ?? "", seen: next, requested: false };
+}
+// localStorage key of a per-profile value ("timer", "docPath"). profileFallback: the 0.2.0 key, read only
+// for the first profile, so a config without profiles keeps its running timer and open file.
+function profileKey(base, profile) { return `${base}@${profile}`; }
+function profileFallback(base, profile, names) { return profile === names[0] ? base : null; }
+// Auto-follow target identity: the same section name in another profile is another target.
+function targetKey(nt) { return nt && nt.key ? `${nt.profile ?? ""}\u0001${nt.key}` : null; }
+
 if (typeof module !== "undefined") {
   module.exports = { FOLD_DEFAULTS, foldOpen, PREVIEW_REFRESH_MS, PREVIEW_STALE_SECS, MIRROR_STALE_SECS,
-    previewStatus, ageParts };
+    previewStatus, ageParts, pickProfile, profileKey, profileFallback, targetKey };
 }

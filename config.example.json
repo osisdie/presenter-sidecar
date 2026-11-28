@@ -71,12 +71,17 @@
 
   "_content": "content_root is the folder for notes, pacing and the AI helper. Relative paths are relative to this repo.",
   "content_root": ".",
+
+  "_profiles": "notes_files, pacing_file / pacing_notes and notes_rules below form the first profile, named profile_name. profiles (further down) adds more; the panel switches them together. Start with one: --profile NAME, the PRESENTER_PROFILE variable or profile here (empty = the first).",
+  "profile_name": "talk",
   "notes_files": [
     "examples/notes/talk-notes.md",
     "examples/notes/talk-notes.zh-TW.md",
     "examples/notes/checklist.md"
   ],
   "pacing_file": "examples/pacing.md",
+  "_pacing_notes": "Instead of pacing_file: a notes file whose ## sections say 'Suggested time: ~N min' (or 建議時間：約 N 分鐘) becomes the pacing.",
+  "pacing_notes": "",
 
   "notes_auto_follow": true,
   "_notes_follow_doc": "Notes file the auto-follow jumps in. Empty: the file you are viewing. A rule may also set its own \"doc\".",
@@ -98,6 +103,21 @@
     {"url_contains": "docs.google.com/spreadsheets", "section_heading_contains": "Demo B"},
     {"title_contains": "Google Sheets", "section_heading_contains": "Demo B"}
   ],
+
+  "profiles": [
+    {
+      "name": "meeting",
+      "notes_files": ["examples/notes/meeting.md"],
+      "pacing_notes": "examples/notes/meeting.md",
+      "notes_rules": [
+        {"title_contains": "Sprint board", "section_heading_contains": "Board walk"},
+        {"title_contains": "Release checklist", "section_heading_contains": "Release"}
+      ]
+    }
+  ],
+  "profile": "",
+  "_profile_auto_switch": "When the projected page matches a rule of another profile, auto-follow switches to that profile (with a notice).",
+  "profile_auto_switch": true,
 
   "_ai_helper": "Optional read-only assistant backed by the Claude Code CLI (must be installed and signed in). Off by default. workdir is relative to content_root.",
   "ai_helper": {

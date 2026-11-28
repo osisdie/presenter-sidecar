@@ -227,3 +227,91 @@ def test_preview_from_an_older_mirror_without_the_field(preview_server):
     _, port, _ = preview_server
     call(port, "POST", "/api/mirror", {"fps": 25}, {"X-Panel": "1"})
     assert call(port, "GET", "/api/state")[1]["preview"] == {"available": False, "enabled": None, "age": None}
+
+
+# ---------------------------------------------------------------- profiles
+def test_config_lists_profiles_and_the_startup_request(server):
+    _, port = server
+    _, body = call(port, "GET", "/api/config")
+    assert body["profiles"] == ["talk", "meeting"] and body["profile_auto_switch"] is True
+    assert body["profile_req"]["name"] == "talk" and body["profile_req"]["id"]
+
+
+def test_notes_and_pacing_per_profile(server):
+    _, port = server
+    _, talk = call(port, "GET", "/api/pacing")
+    _, meet = call(port, "GET", "/api/pacing?profile=meeting")
+    assert talk["profile"] == "talk" and talk["stages"][0]["short"] == "Intro"
+    assert meet["profile"] == "meeting" and [s["minutes"] for s in meet["stages"]] == [5, 15, 10, 5]
+    _, notes = call(port, "GET", "/api/notes?profile=meeting")
+    assert [d["name"] for d in notes["docs"]] == ["meeting.md"]
+    _, unknown = call(port, "GET", "/api/notes?profile=nope")  # unknown: the startup profile
+    assert unknown["profile"] == "talk" and len(unknown["docs"]) == 3
+
+
+def test_auto_follow_finds_another_profiles_rule(server):
+    app, port = server
+    call(port, "POST", "/api/mirror", {"source_title": "Sprint board - Google Chrome"}, {"X-Panel": "1"})
+    nt = call(port, "GET", "/api/state?profile=talk")[1]["notes_target"]
+    assert nt["profile"] == "meeting" and nt["key"] == "Board walk"
+    # The active profile's own rules come first.
+    call(port, "POST", "/api/mirror", {"source_title": "Plant-care App · Q&A - Google Chrome"}, {"X-Panel": "1"})
+    nt = call(port, "GET", "/api/state?profile=meeting")[1]["notes_target"]
+    assert nt["profile"] == "talk" and nt["key"] == "Q&A"
+    # No rule anywhere: no key, the active profile.
+    call(port, "POST", "/api/mirror", {"source_title": "Something else"}, {"X-Panel": "1"})
+    nt = call(port, "GET", "/api/state?profile=meeting")[1]["notes_target"]
+    assert nt["key"] is None and nt["profile"] == "meeting"
+
+
+def test_auto_switch_off_keeps_to_the_active_profile(server):
+    app, port = server
+    cfg = json.loads(app.cfg_path.read_text(encoding="utf-8"))
+    cfg["profile_auto_switch"] = False
+    _rewrite(app.cfg_path, cfg, 5)
+    call(port, "POST", "/api/mirror", {"source_title": "Sprint board - Google Chrome"}, {"X-Panel": "1"})
+    assert call(port, "GET", "/api/state?profile=talk")[1]["notes_target"]["key"] is None
+    assert call(port, "GET", "/api/state?profile=meeting")[1]["notes_target"]["key"] == "Board walk"
+
+
+def test_startup_profile_and_switch_request(tmp_path):
+    cfg = json.loads((ROOT / "config.example.json").read_text(encoding="utf-8"))
+    cfg["content_root"] = str(ROOT)
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps(cfg), encoding="utf-8")
+    app = panel_server.App(p, profile="meeting")  # --profile meeting
+    srv = panel_server.make_server(app, "127.0.0.1", 0)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    port = srv.server_address[1]
+    try:
+        req = call(port, "GET", "/api/state")[1]["profile_req"]
+        assert req["name"] == "meeting"
+        assert [d["name"] for d in call(port, "GET", "/api/notes")[1]["docs"]] == ["meeting.md"]
+        assert call(port, "POST", "/api/profile", {"name": "talk"})[0] == 403  # X-Panel needed
+        st, body = call(port, "POST", "/api/profile", {"name": "nope"}, {"X-Panel": "1"})
+        assert st == 400 and body["profiles"] == ["talk", "meeting"]
+        st, body = call(port, "POST", "/api/profile", {"name": "talk"}, {"X-Panel": "1"})
+        assert st == 200 and body["profile_req"]["name"] == "talk" and body["profile_req"]["id"] != req["id"]
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_profile_comes_from_cli_then_env(monkeypatch, tmp_path):
+    seen = {}
+
+    class Stop(Exception):
+        pass
+
+    def fake_make_server(app, host=None, port=None):
+        seen["profile"] = app.profile_asked
+        raise Stop
+
+    monkeypatch.setattr(panel_server, "make_server", fake_make_server)
+    monkeypatch.setenv("PRESENTER_PROFILE", "meeting")
+    with pytest.raises(Stop):
+        panel_server.main([])
+    assert seen["profile"] == "meeting"
+    with pytest.raises(Stop):
+        panel_server.main(["--profile", "talk"])
+    assert seen["profile"] == "talk"

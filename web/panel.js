@@ -56,6 +56,9 @@ const I18N = {
     "preview.ageS": "{n} s ago", "preview.ageM": "{n} min ago", "preview.offline": "Mirror not connected",
     "preview.off": "Preview off", "preview.none": "No image yet",
     "preview.old": "Not updated for over {n} s", "preview.frozen": "Frozen", "preview.blank": "Blank",
+    "profile.tip": "Profile: notes, timer sections and auto-follow rules switch together",
+    "profile.label": "Profile", "profile.now": "Profile: {p}",
+    "profile.followed": "Profile switched to {p}: the projected page matches its rules ({by}: {title})",
   },
   "zh-TW": {
     "mirror.tip": "投影狀態（mirror.py 回報）", "font.down": "字小一點", "font.up": "字大一點",
@@ -101,6 +104,9 @@ const I18N = {
     "preview.ageS": "{n} 秒前", "preview.ageM": "{n} 分鐘前", "preview.offline": "mirror 未連線",
     "preview.off": "預覽已關閉", "preview.none": "還沒有畫面",
     "preview.old": "超過 {n} 秒沒有更新", "preview.frozen": "凍結", "preview.blank": "請稍候",
+    "profile.tip": "情境：講稿、計時段落和自動跟隨規則一起切換",
+    "profile.label": "情境", "profile.now": "情境：{p}",
+    "profile.followed": "已切到情境「{p}」：投影的頁面符合它的規則（依{by}：{title}）",
   },
 };
 let LANG = "en", CONF = { hotkeys: {}, ai_helper: false };
@@ -168,9 +174,11 @@ function showTab(name) {
 document.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
 
 // ------------------------------------------------------------ timers (sections come from the pacing file)
+// Each profile has its own sections and timer ("timer@<profile>"): switching never resets another one.
 let stages = [];
-let timer = LS.get("timer", { cur: -1, starts: {}, classStart: null });
-const saveTimer = () => LS.set("timer", timer);
+const freshTimer = () => ({ cur: -1, starts: {}, classStart: null });
+let timer = freshTimer();
+const saveTimer = () => LS.set(profileKey("timer", profile), timer);
 const mmss = (ms) => {
   const s = Math.max(0, Math.floor(ms / 1000));
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
@@ -219,7 +227,7 @@ function tick() {
 $("#btnStart").onclick = () => startStage(0);
 $("#btnNext").onclick = () => startStage(timer.cur + 1);
 $("#btnResetTimer").onclick = () => {
-  if (confirm(T("timer.confirmReset"))) { timer = { cur: -1, starts: {}, classStart: null }; saveTimer(); renderStages(); tick(); }
+  if (confirm(T("timer.confirmReset"))) { timer = freshTimer(); saveTimer(); renderStages(); tick(); }
 };
 setInterval(tick, 500);
 
@@ -229,7 +237,8 @@ let docs = [], docIdx = 0, sections = [], secIdx = 0, viewStage = -1;
 // reordering notes files keeps your place; 0.1.0 saved them by position ("doc", "sec.<n>").
 const secKey = () => `secs.${docs[docIdx]?.path}`;
 function savedDoc() {
-  const i = docs.findIndex((d) => d.path === LS.get("docPath", null));
+  const old = profileFallback("docPath", profile, profileNames);
+  const i = docs.findIndex((d) => d.path === LS.get(profileKey("docPath", profile), old && LS.get(old, null)));
   return i >= 0 ? i : Math.min(LS.get("doc", 0), docs.length - 1);
 }
 function splitSections(text) {
@@ -260,7 +269,7 @@ function renderDocBar() {
   });
 }
 function openDoc(i, sec) {
-  docIdx = Math.max(0, Math.min(docs.length - 1, i)); LS.set("docPath", docs[docIdx].path);
+  docIdx = Math.max(0, Math.min(docs.length - 1, i)); LS.set(profileKey("docPath", profile), docs[docIdx].path);
   sections = splitSections(docs[docIdx].text);
   const sel = $("#secSel"); sel.innerHTML = "";
   sections.forEach((s, k) => { const o = document.createElement("option"); o.value = k; o.textContent = `${k + 1}/${sections.length}　${s.title}`; sel.appendChild(o); });
@@ -278,7 +287,7 @@ function goSection(k, restoreStep = false) {
     if (saved > 0) goStep(saved); else goStep(0, false);  // new section: step 1, scrolled to the top
   }
   viewStage = stageOfTitle(sections[secIdx].title);
-  post("/api/panel", { doc: docs[docIdx].name, section: sections[secIdx].title, index: `${secIdx + 1}/${sections.length}`, follow: notesFollow }).catch(() => {});
+  post("/api/panel", { profile, doc: docs[docIdx].name, section: sections[secIdx].title, index: `${secIdx + 1}/${sections.length}`, follow: notesFollow }).catch(() => {});
   const hint = $("#stageHint");
   if (viewStage >= 0 && viewStage !== timer.cur) {
     const v = esc(stages[viewStage].short), c = esc(stages[timer.cur]?.short || T("timer.notStarted"));
@@ -452,23 +461,30 @@ function renderFollowBtn() {
   const b = $("#followBtn"); b.textContent = T(notesFollow ? "follow.on" : "follow.off"); b.classList.toggle("on", !!notesFollow);
 }
 $("#followBtn").onclick = () => { notesFollow = !notesFollow; LS.set("notesFollow", notesFollow); renderFollowBtn(); };
-function followTo(nt) {
+function followTo(nt, msg) {
   let di = nt.doc ? docs.findIndex((d) => d.name === nt.doc || d.path.endsWith(nt.doc)) : docIdx;
   if (di < 0) di = docIdx;
   const secs = splitSections(docs[di].text);
   const k = secs.findIndex((x) => x.title.includes(nt.section));
   if (k < 0) return;
   if (di !== docIdx) openDoc(di, k); else goSection(k);
-  toast(T("notes.followed", { sec: secs[k].title, by: T("by." + nt.by), title: nt.title }));
+  toast(msg || T("notes.followed", { sec: secs[k].title, by: T("by." + nt.by), title: nt.title }));
 }
-function handleNotesTarget(st) {
+async function handleNotesTarget(st) {
   if (notesFollow === null) { notesFollow = LS.get("notesFollow", st.notes_auto_follow_default !== false); renderFollowBtn(); }
-  const nt = st.notes_target;
-  if (!nt || !nt.key || !docs.length) return;                         // no rule matched: stay
-  if (lastNotesKey === undefined) { lastNotesKey = nt.key; return; }  // panel just opened: keep your place
-  if (nt.key === lastNotesKey) return;                                // same section: do not move
-  lastNotesKey = nt.key;
-  if (notesFollow) followTo(nt);
+  const nt = st.notes_target, k = targetKey(nt);
+  if (!k) return;                                                     // no rule matched: stay
+  if (lastNotesKey === undefined) { lastNotesKey = k; return; }       // panel just opened: keep your place
+  if (k === lastNotesKey) return;                                     // same section: do not move
+  lastNotesKey = k;
+  if (!notesFollow) return;
+  if (nt.profile && nt.profile !== profile) {                         // another profile's rule (profile_auto_switch)
+    if (CONF.profile_auto_switch === false || !profileNames.includes(nt.profile)) return;
+    await loadProfile(nt.profile);
+    if (docs.length) followTo(nt, T("profile.followed", { p: nt.profile, by: T("by." + nt.by), title: nt.title }));
+    return;
+  }
+  if (docs.length) followTo(nt);
 }
 function handleVersion(st) {
   if (!st.web_version) return;
@@ -482,8 +498,10 @@ function handleVersion(st) {
 // ------------------------------------------------------------ projector status + global paging hotkeys
 let lastCmdSeq = null;
 async function pollState() {
+  if (switching) return;  // a profile is loading: its notes and stages are not there yet
   try {
-    const st = await (await fetch("/api/state")).json();
+    const st = await (await fetch("/api/state?profile=" + encodeURIComponent(profile))).json();
+    if (await handleProfileRequest(st.profile_req)) return;
     const pill = $("#mirror"), m = st.mirror || {};
     const stale = st.mirror_age == null || st.mirror_age > 4;
     pill.className = "pill";
@@ -513,7 +531,7 @@ async function pollState() {
     sum.textContent = w ? (info ? w : "⚠ " + w) : $("#srcTitle").textContent;
     sum.className = "foldsum" + (w ? (info ? " info" : " warn") : "");
     renderPreview(st);
-    handleNotesTarget(st); handleVersion(st);
+    await handleNotesTarget(st); handleVersion(st);
     const cmds = st.cmds || [];
     if (lastCmdSeq == null) lastCmdSeq = cmds.length ? cmds[cmds.length - 1].seq : 0;
     for (const c of cmds) if (c.seq > lastCmdSeq) {
@@ -569,6 +587,43 @@ async function previewTick() {
 }
 setInterval(previewTick, PREVIEW_REFRESH_MS);
 document.addEventListener("visibilitychange", previewTick);
+
+// ------------------------------------------------------------ profiles
+// A profile = notes files + timer sections (pacing) + auto-follow rules; switching changes all three.
+// The chip in the header is shown when the config has more than one.
+let profile = "", profileNames = [], switching = null;
+function renderProfileSel() {
+  const sel = $("#profileSel");
+  sel.innerHTML = profileNames.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
+  sel.value = profile; sel.hidden = profileNames.length < 2;
+}
+async function loadProfile(name) {
+  const run = (async () => {
+    profile = name; LS.set("profile", name); renderProfileSel();
+    const q = "?profile=" + encodeURIComponent(name);
+    const [pac, nts] = await Promise.all([fetch("/api/pacing" + q).then((r) => r.json()), fetch("/api/notes" + q).then((r) => r.json())]);
+    stages = pac.stages || [];
+    const old = profileFallback("timer", name, profileNames);
+    timer = LS.get(profileKey("timer", name), old ? LS.get(old, freshTimer()) : freshTimer());
+    if (timer.cur >= stages.length) timer.cur = -1;
+    docs = nts.docs || []; sections = []; steps = [];
+    $("#docs").innerHTML = ""; $("#secSel").innerHTML = ""; $("#note").innerHTML = ""; $("#stepnav").hidden = true;
+    if (docs.length) openDoc(savedDoc(), null); else { $("#stageHint").hidden = true; navSummary(); }
+    renderStages(); tick();
+  })();
+  switching = run;
+  try { await run; } finally { if (switching === run) switching = null; }
+}
+// Startup request from the server (--profile, PRESENTER_PROFILE, start.ps1 -Profile): obeyed once per id.
+async function handleProfileRequest(req) {
+  if (!req || req.id === LS.get("profileReq", null)) return false;
+  const pick = pickProfile(profileNames, profile, req, LS.get("profileReq", null));
+  LS.set("profileReq", pick.seen);
+  if (pick.name === profile) return false;
+  await loadProfile(pick.name); toast(T("profile.now", { p: pick.name }));
+  return true;
+}
+$("#profileSel").onchange = async (e) => { e.target.blur(); await loadProfile(e.target.value); };
 
 // ------------------------------------------------------------ AI helper (optional, read-only)
 const chat = $("#chat");
@@ -633,11 +688,9 @@ $("#btnNew").onclick = async () => { await post("/api/reset"); chat.querySelecto
 (async function init() {
   try { CONF = await (await fetch("/api/config")).json(); LANG = I18N[CONF.ui_lang] ? CONF.ui_lang : "en"; } catch {}
   applyI18n(); renderKeys();
-  try {
-    stages = (await (await fetch("/api/pacing")).json()).stages || [];
-    if (timer.cur >= stages.length) timer.cur = -1;
-    docs = (await (await fetch("/api/notes")).json()).docs || [];
-    if (docs.length) openDoc(savedDoc(), null);
-  } catch (e) { $("#note").textContent = T("notes.cannotRead") + e; }
+  profileNames = Array.isArray(CONF.profiles) && CONF.profiles.length ? CONF.profiles : ["default"];
+  const pick = pickProfile(profileNames, LS.get("profile", null), CONF.profile_req, LS.get("profileReq", null));
+  LS.set("profileReq", pick.seen);
+  try { await loadProfile(pick.name); } catch (e) { $("#note").textContent = T("notes.cannotRead") + e; }
   renderStages(); tick(); pollState(); showTab(LS.get("tab", "notes"));
 })();

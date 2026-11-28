@@ -3,14 +3,16 @@
 
 - GET  /                 panel web page (web/)
 - GET  /api/health       health check
-- GET  /api/config       UI settings (language, hotkeys, AI helper on/off)
-- GET  /api/notes        speaker notes (only the files listed in notes_files)
-- GET  /api/pacing       per-section minutes parsed from pacing_file
-- GET  /api/state        mirror status + notes target + queued hotkey commands + preview age
+- GET  /api/config       UI settings (language, hotkeys, AI helper on/off, profile names)
+- GET  /api/notes        speaker notes of a profile (?profile=; only the files listed in its notes_files)
+- GET  /api/pacing       per-section minutes of a profile (pacing_file, or derived from pacing_notes)
+- GET  /api/state        mirror status + notes target (?profile= is the panel's profile) + queued hotkey
+                         commands + preview age + the requested startup profile
 - GET  /api/preview      small JPEG of the projector written by mirror.py (logs/, local only)
 - POST /api/mirror       mirror.py reports its status
 - POST /api/cmd          mirror.py forwards notes paging hotkeys
 - POST /api/panel        panel reports which section it shows
+- POST /api/profile      ask open panels to switch profile (start.ps1 -Profile while the server runs)
 - POST /api/ask          ask the AI helper (streamed NDJSON; disabled by default)
 - POST /api/cancel       stop the current answer
 - POST /api/reset        start a new conversation
@@ -30,13 +32,16 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from presenter_sidecar import PANEL_TITLE, __version__, cdp
 from presenter_sidecar.config import ROOT, config_path, content_root, load_config, resolve
 from presenter_sidecar.i18n import t
-from presenter_sidecar.notes import choose_active_tab, clean_title, notes_target, parse_pacing, projected_title
+from presenter_sidecar.notes import (choose_active_tab, clean_title, notes_target, pacing_from_notes, parse_pacing,
+                                     projected_title)
+from presenter_sidecar.profiles import find as find_profile, profiles, startup_profile
 from presenter_sidecar.preview import PREVIEW_FILE
 
 WEB = ROOT / "web"
@@ -111,9 +116,15 @@ def kill_tree(proc: subprocess.Popen) -> None:
 
 # ---------------------------------------------------------------- application state
 class App:
-    def __init__(self, cfg_path: Path | None = None, root: Path = ROOT, logs: Path | None = None):
+    def __init__(self, cfg_path: Path | None = None, root: Path = ROOT, logs: Path | None = None,
+                 profile: str | None = None):
         self.root = root
         self.logs = Path(logs) if logs else LOGS
+        # Startup profile asked for (--profile / PRESENTER_PROFILE). Each request gets a new id, so a panel
+        # switches once per request (a new start or POST /api/profile) but F5 keeps a profile you chose by hand.
+        self.profile_asked = profile or ""
+        self.profile_req_n = 0
+        self.boot = str(int(time.time() * 1000))
         self.cfg_path = Path(cfg_path) if cfg_path else config_path(root)
         self.cfg = load_config(self.cfg_path, root)
         self.cfg_mtime = self._mtime()
@@ -158,12 +169,25 @@ class App:
     def content_root(self) -> Path:
         return content_root(self.cfg)
 
+    # ---- profiles (reload live with the config)
+    def profiles(self) -> list[dict]:
+        return profiles(self.live_cfg())
+
+    def profile(self, name: str | None = None) -> dict:
+        """The named profile, else the startup one."""
+        profs = self.profiles()
+        return find_profile(profs, name) or find_profile(profs, self.profile_request()["name"]) or profs[0]
+
+    def profile_request(self) -> dict:
+        name = startup_profile(self.profiles(), self.profile_asked, self.cfg.get("profile"))
+        return {"name": name, "id": f"{self.boot}-{self.profile_req_n}"}
+
     # ---- notes (the file list and pacing file reload live too: no restart after adding a notes file)
-    def read_notes(self) -> list[dict]:
+    def read_notes(self, profile: str | None = None) -> list[dict]:
         cfg = self.live_cfg()
         base = content_root(cfg)
         out = []
-        for rel in cfg.get("notes_files") or []:
+        for rel in self.profile(profile)["notes_files"]:
             p = resolve(base, rel)
             try:
                 out.append({"name": p.name, "path": rel, "text": p.read_text(encoding="utf-8")})
@@ -171,12 +195,16 @@ class App:
                 out.append({"name": p.name, "path": rel, "text": f"> Cannot read file: {e.strerror or e}"})
         return out
 
-    def pacing(self) -> list[dict]:
+    def pacing(self, profile: str | None = None) -> list[dict]:
+        """``pacing_file`` (pacing format) or, when that is empty, ``pacing_notes`` (stages from a notes file)."""
         cfg = self.live_cfg()
-        if not cfg.get("pacing_file"):
+        prof = self.profile(profile)
+        src, parse = (prof["pacing_file"], parse_pacing) if prof["pacing_file"] else (prof["pacing_notes"],
+                                                                                      pacing_from_notes)
+        if not src:
             return []
         try:
-            return parse_pacing(resolve(content_root(cfg), cfg["pacing_file"]).read_text(encoding="utf-8"))
+            return parse(resolve(content_root(cfg), src).read_text(encoding="utf-8"))
         except OSError:
             return []
 
@@ -202,7 +230,9 @@ class App:
         self._live[tid] = (time.time(), val)
         return val
 
-    def notes_target(self, mirror: dict, age: float | None) -> dict | None:
+    def notes_target(self, mirror: dict, age: float | None, profile: str | None = None) -> dict | None:
+        """The active profile's rules first; with ``profile_auto_switch``, then the other profiles' rules
+        in order. The result names its ``profile``; a different one tells the panel to switch."""
         cfg = self.live_cfg()
         if not mirror or age is None or age > MIRROR_STALE_SECS:
             return None
@@ -212,7 +242,20 @@ class App:
         url, tab_id = "", ""
         if cfg.get("cdp_url"):
             url, tab_id = choose_active_tab(self.cdp_tabs(cfg["cdp_url"]), title, self.tab_live, self._last_active)
-        return notes_target(cfg.get("notes_rules") or [], title, url, tab_id, cfg.get("notes_follow_doc", ""))
+        active = self.profile(profile)
+        order = [active]
+        if cfg.get("profile_auto_switch", True):
+            order += [p for p in self.profiles() if p["name"] != active["name"]]
+        miss = None
+        for prof in order:
+            target = notes_target(prof["notes_rules"], title, url, tab_id, prof["notes_follow_doc"])
+            if target is None:
+                return None
+            target["profile"] = prof["name"]
+            if target.get("key"):
+                return target
+            miss = miss or target
+        return miss
 
     # ---- projector preview (mirror.py writes logs/mirror.preview.jpg atomically)
     def preview_path(self) -> Path:
@@ -306,11 +349,15 @@ class Handler(BaseHTTPRequestHandler):
             cfg = app.live_cfg()
             return self._json({"ui_lang": cfg.get("ui_lang", "en"), "hotkeys": cfg.get("hotkeys", {}),
                                "ai_helper": bool(app.ai.get("enabled")), "panel_title": PANEL_TITLE,
-                               "cdp": bool(cfg.get("cdp_url")), "version": __version__})
+                               "cdp": bool(cfg.get("cdp_url")), "version": __version__,
+                               "profiles": [p["name"] for p in app.profiles()],
+                               "profile_auto_switch": bool(cfg.get("profile_auto_switch", True)),
+                               "profile_req": app.profile_request()})
+        prof = (urllib.parse.parse_qs(self.path.partition("?")[2]).get("profile") or [None])[0]
         if path == "/api/notes":
-            return self._json({"docs": app.read_notes()})
+            return self._json({"profile": app.profile(prof)["name"], "docs": app.read_notes(prof)})
         if path == "/api/pacing":
-            return self._json({"stages": app.pacing()})
+            return self._json({"profile": app.profile(prof)["name"], "stages": app.pacing(prof)})
         if path == "/api/state":
             with app.lock:
                 age = time.time() - app.mirror_ts if app.mirror_ts else None
@@ -318,7 +365,8 @@ class Handler(BaseHTTPRequestHandler):
                 busy, sess, cmds, panel = app.busy, bool(app.session_id), app.cmds[-20:], app.panel
             cfg = app.live_cfg()
             return self._json({"mirror": mirror, "mirror_age": age, "cmds": cmds, "busy": busy, "session": sess,
-                               "notes_target": app.notes_target(mirror, age),
+                               "notes_target": app.notes_target(mirror, age, prof),
+                               "profile_req": app.profile_request(),
                                "notes_auto_follow_default": bool(cfg.get("notes_auto_follow", True)),
                                "web_version": app.web_version(), "panel": panel,
                                "preview": app.preview_state(mirror, age)})
@@ -366,6 +414,13 @@ class Handler(BaseHTTPRequestHandler):
             with app.lock:
                 app.panel = {**body, "ts": time.time()}
             return self._json({"ok": True})
+        if path == "/api/profile":
+            name = str(body.get("name", "")).strip()
+            if not find_profile(app.profiles(), name):
+                return self._json({"error": "unknown profile", "profiles": [p["name"] for p in app.profiles()]}, 400)
+            with app.lock:
+                app.profile_asked, app.profile_req_n = name, app.profile_req_n + 1
+            return self._json({"ok": True, "profile_req": app.profile_request()})
         if path == "/api/cmd":
             try:
                 nav = int(body.get("nav", 0))
@@ -526,13 +581,16 @@ def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--config", help="config file (default: config.json, else config.example.json)")
     ap.add_argument("--port", type=int, help="override panel_port")
+    ap.add_argument("--profile", help="startup profile (default: PRESENTER_PROFILE, else profile in the config, "
+                                      "else the first)")
     args = ap.parse_args(argv)
     try:
         sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
         sys.stderr.reconfigure(encoding="utf-8")
     except (AttributeError, OSError):
         pass
-    app = App(Path(args.config) if args.config else None)
+    app = App(Path(args.config) if args.config else None,
+              profile=args.profile or os.environ.get("PRESENTER_PROFILE") or None)
     host = app.cfg.get("panel_host", "127.0.0.1")
     if host not in ("127.0.0.1", "localhost", "::1"):
         sys.exit("panel_host must be a loopback address (127.0.0.1)")
@@ -542,7 +600,10 @@ def main(argv: list[str] | None = None) -> None:
     if SESSION_FILE.exists():  # keep the same AI conversation across restarts
         app.session_id = SESSION_FILE.read_text().strip() or None
     print(f"panel server {__version__} on http://{host}:{srv.server_address[1]}  config={app.cfg_path.name}  "
-          f"ai_helper={'on' if app.ai.get('enabled') else 'off'}", flush=True)
+          f"ai_helper={'on' if app.ai.get('enabled') else 'off'}  profile={app.profile_request()['name']}", flush=True)
+    if app.profile_asked and app.profile_asked != app.profile_request()["name"]:
+        print(f"warning: no profile named {app.profile_asked!r}; profiles: "
+              f"{', '.join(p['name'] for p in app.profiles())}", flush=True)
     try:
         srv.serve_forever()
     finally:

@@ -257,3 +257,58 @@ def step_label(title: str, index: int, total: int, lang: str = "en") -> str:
     if lang == "zh-TW":
         return f"{title}（{index}/{total}）"
     return f"{title} ({index}/{total})"
+
+
+# ---------------------------------------------------------------- pacing derived from a notes file
+# A notes file can be its own pacing: every ``## `` section that states a suggested time is a stage.
+# ``建議時間：約 8 分鐘`` / ``Suggested time: ~8 min`` (bold, ``約``, ``~`` optional; the first number counts).
+SUGGESTED_TIME = re.compile(
+    r"(?:建議時間\s*[:：]?\s*(?:約|大約)?\s*(\d+)\s*(?:[-–~～至到]\s*\d+\s*)?分"
+    r"|suggested\s+time\s*[:：]?\s*(?:about|approx\.?|~|≈)?\s*(\d+)\s*(?:[-–~]\s*\d+\s*)?min)",
+    re.I)
+
+
+STAGE_PREFIX = re.compile(
+    r"^((?:stage|part|session|module|lab|day)\s*\d+[a-z]?|第\s*[0-9一二三四五六七八九十]+\s*[段節章部課天])\s*[.、．]?\s+(\S.*)$",
+    re.I)
+
+
+def stage_label(heading: str) -> tuple[str, str]:
+    """A notes heading → (short, title) for a stage button: ``"Part 0 暖身"`` → ``("Part 0", "暖身")``,
+    ``"Demo A: code"`` → ``("Demo A", "code")``; anything else is all short."""
+    m = STAGE_PREFIX.match(heading.strip())
+    return (m.group(1).strip(), m.group(2).strip()) if m else split_label(heading)
+
+
+def pacing_from_notes(markdown: str) -> list[dict]:
+    """Stages from a notes file: each ``##`` section with a suggested-time line, in order.
+
+    ``short`` / ``title`` come from :func:`stage_label`, so the stage matches its own section in the panel. Sections without a time line
+    (the ``#`` title section, an appendix) are not stages.
+    """
+    stages: list[dict] = []
+    heading, body, fence = None, [], False
+
+    def flush():
+        if heading is None:
+            return
+        m = SUGGESTED_TIME.search(re.sub(r"[*_`]", "", "\n".join(body)))
+        if not m:
+            return
+        short, title = stage_label(heading)
+        key, n = short, 2
+        while any(s["key"] == key for s in stages):  # duplicate short names stay separate timers
+            key, n = f"{short} ({n})", n + 1
+        stages.append({"key": key, "short": short, "title": title, "offset": "",
+                       "minutes": int(m.group(1) or m.group(2)), "detail": ""})
+
+    for ln in markdown.replace("\r", "").split("\n"):
+        if ln.startswith("```"):
+            fence = not fence
+        if not fence and ln.startswith("## "):
+            flush()
+            heading, body = _plain(ln[3:]), []
+        elif heading is not None:
+            body.append(ln)
+    flush()
+    return stages

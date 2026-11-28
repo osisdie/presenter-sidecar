@@ -74,12 +74,20 @@ DEFAULTS: dict = {
     "wsl_distro": "",
     "panel_browser": "",
     "content_root": ".",
+    # The keys below up to notes_rules form the first profile (named profile_name); "profiles" adds more.
+    "profile_name": "default",
     "notes_files": [],
     "pacing_file": "",
+    "pacing_notes": "",
     "notes_auto_follow": True,
     "notes_follow_doc": "",
     "cdp_url": "",
     "notes_rules": [],
+    "profiles": [],
+    # Startup profile ("" = the first); --profile / PRESENTER_PROFILE override it.
+    "profile": "",
+    # Auto-follow may switch to another profile whose rule matches the projected page.
+    "profile_auto_switch": True,
     "ai_helper": {
         "enabled": False,
         "claude_bin": "",
