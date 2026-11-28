@@ -24,7 +24,7 @@ const st = (mirrorAge, preview, mirror = {}) => ({ mirror_age: mirrorAge, mirror
 
 test("fresh image: load it, nothing to note", () => {
   const p = previewStatus(st(0.5, { available: true, enabled: true, age: 1.2 }));
-  assert.deepEqual(p, { connected: true, load: true, age: 1.2, badges: [], note: null, stale: false });
+  assert.deepEqual(p, { connected: true, load: true, age: 1.2, badges: [], note: null, stale: false, hide: false });
 });
 
 test("older than the stale limit: greyed out but still loaded", () => {
@@ -47,6 +47,9 @@ test("preview off or no image yet: nothing to fetch, not greyed", () => {
   assert.equal(off.note, "off"); assert.equal(off.load, false); assert.equal(off.stale, false);
   const none = previewStatus(st(1, { available: false, enabled: true, age: null }));
   assert.equal(none.note, "none"); assert.equal(none.load, false); assert.equal(none.stale, false);
+  // Neither may keep showing an earlier picture (an encode error, or a mirror restart deleted the file).
+  assert.equal(off.hide, true); assert.equal(none.hide, true);
+  assert.equal(previewStatus(st(9, { available: true })).hide, false);  // offline: last picture, greyed
   // A mirror before 0.3.0 reports no preview at all.
   assert.equal(previewStatus(st(1, undefined)).note, "none");
 });

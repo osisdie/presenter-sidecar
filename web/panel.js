@@ -54,7 +54,7 @@ const I18N = {
     "fold.preview": "Projector view", "fold.source": "Source", "fold.timer": "Timer", "fold.nav": "Notes & sections",
     "fold.chat": "Conversation", "preview.alt": "What the audience sees on the projector now",
     "preview.ageS": "{n} s ago", "preview.ageM": "{n} min ago", "preview.offline": "Mirror not connected",
-    "preview.off": "Preview off (preview_interval_sec is 0)", "preview.none": "No image yet",
+    "preview.off": "Preview off", "preview.none": "No image yet",
     "preview.old": "Not updated for over {n} s", "preview.frozen": "Frozen", "preview.blank": "Blank",
   },
   "zh-TW": {
@@ -99,7 +99,7 @@ const I18N = {
     "fold.preview": "投影畫面", "fold.source": "投影來源", "fold.timer": "計時", "fold.nav": "講稿與章節",
     "fold.chat": "對話", "preview.alt": "觀眾現在在投影上看到的畫面",
     "preview.ageS": "{n} 秒前", "preview.ageM": "{n} 分鐘前", "preview.offline": "mirror 未連線",
-    "preview.off": "預覽已關閉（preview_interval_sec 為 0）", "preview.none": "還沒有畫面",
+    "preview.off": "預覽已關閉", "preview.none": "還沒有畫面",
     "preview.old": "超過 {n} 秒沒有更新", "preview.frozen": "凍結", "preview.blank": "請稍候",
   },
 };
@@ -540,6 +540,7 @@ function renderPreview(st) {
   $("#previewNote").textContent = note;
   $("#previewAge").textContent = p.age == null ? "" : ageText(p.age);
   $("#previewEmpty").textContent = note || T("preview.none");
+  if (p.hide) { $("#previewImg").hidden = true; $("#previewEmpty").hidden = false; }  // never a stale screen in colour
   const sum = $("#previewSum");  // closed block: projector modes and problems only
   sum.textContent = [...badges, p.stale || p.note === "off" ? note : ""].filter(Boolean).join(" · ");
   sum.className = "foldsum" + (badges.length || p.stale ? " warn" : "");
@@ -549,13 +550,15 @@ async function previewTick() {
   if (pvBusy || !pvStatus.load || !foldIsOpen("preview") || document.visibilityState !== "visible") return;
   pvBusy = true;
   try {
-    const res = await fetch("/api/preview?t=" + Date.now(), { cache: "no-store" });
+    // A hung request must not block every later refresh (pvBusy): give up after 5 s.
+    const res = await fetch("/api/preview?t=" + Date.now(), { cache: "no-store", signal: AbortSignal.timeout(5000) });
     if (!res.ok) return;
     const url = URL.createObjectURL(await res.blob()), img = $("#previewImg");
     await new Promise((done) => {
       img.onload = () => {
         if (pvUrl) URL.revokeObjectURL(pvUrl);
-        pvUrl = url; img.hidden = false; $("#previewEmpty").hidden = true;
+        pvUrl = url;
+        if (!pvStatus.hide) { img.hidden = false; $("#previewEmpty").hidden = true; }
         $("#preview").style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
         done();
       };

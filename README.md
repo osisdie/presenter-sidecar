@@ -225,7 +225,10 @@ A small Chrome/Edge window that only you see. Title: "Presenter Panel".
 - Open, it reloads every ~2 s while the panel is visible; closed or hidden, it loads nothing.
   It shows the age ("3 s ago") and **Frozen** / **Blank** badges. It is greyed out with a note when the
   picture is more than 10 s old or the mirror is not connected (the last picture stays, greyed).
-- `"preview_interval_sec": 0` turns it off in mirror.py (restart the mirror).
+- `"preview_interval_sec": 0` turns it off in mirror.py (restart the mirror). If the preview fails (for
+  example the JPEG encoder), only the preview turns off ("Preview off"); the projector keeps running.
+- The notes always keep at least a quarter of the window: in a short panel the preview picture gets
+  smaller first, down to its header row.
 
 **Timers**
 - Sections and minutes come from `pacing_file` (see [`examples/pacing.md`](examples/pacing.md)).
@@ -370,7 +373,8 @@ only `python3` is needed.
 - **Hidden from the audience**: source titles, warnings and notices appear only in the panel.
 - **Projector preview**: `logs/mirror.preview.jpg` holds a small copy of what is on the projector, so it
   contains screen content. It stays on this computer in `logs/` (gitignored, and denied to the AI helper),
-  is never uploaded, is replaced in place every few seconds and is deleted when the mirror starts and stops.
+  is never uploaded, is replaced in place every few seconds and is deleted when the mirror starts and stops
+  (also by `stop.bat` after a forced kill).
   The panel server sends it only to `127.0.0.1` pages, with `Cache-Control: no-store` and
   `Cross-Origin-Resource-Policy: same-origin` (other sites cannot embed it). Set
   `"preview_interval_sec": 0` to not write it at all.
@@ -381,7 +385,7 @@ only `python3` is needed.
 python -m pip install -r requirements-dev.txt
 python -m pytest -q                     # unit tests, no display needed (Linux/macOS/Windows)
 node --test tests/js/*.test.js          # panel step rule (web/steps.js) on the shared fixtures, web/view.js
-# Optional headless panel checks (tests/test_panel_ui.py, skipped without Playwright):
+# Headless panel checks (tests/test_panel_ui.py; skipped without Playwright, run by the CI "ui" job):
 python -m pip install playwright pillow && python -m playwright install chromium
 scripts/check/install-hooks.sh          # pre-commit: gitleaks + private-term scan
 scripts/check/scan-private.sh --all

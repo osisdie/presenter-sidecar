@@ -23,7 +23,7 @@ Only the latest release receives fixes.
   are denied in the CLI's permission settings.
 - The projector preview (`logs/mirror.preview.jpg`) contains screen content. It is written atomically by
   mirror.py, stays in the gitignored `logs/` folder (denied to the AI helper), is deleted when the mirror
-  starts and stops and is never uploaded. `GET /api/preview` has the same `Host` check as the other
+  starts and stops (and by `mirror.py --cleanup`, which `stop.ps1` runs after a forced kill) and is never uploaded. `GET /api/preview` has the same `Host` check as the other
   endpoints and answers with `Cache-Control: no-store` and `Cross-Origin-Resource-Policy: same-origin`,
   so other web pages cannot embed it. `"preview_interval_sec": 0` disables it.
 - `cdp_url` must be a loopback address. A browser started with `--remote-debugging-port` can be

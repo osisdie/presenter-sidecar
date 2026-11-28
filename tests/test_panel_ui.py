@@ -14,8 +14,14 @@ import time
 
 import pytest
 
-sync_api = pytest.importorskip("playwright.sync_api")
-Image = pytest.importorskip("PIL.Image")
+import os  # noqa: E402
+
+if os.environ.get("REQUIRE_UI_TESTS"):  # the CI job that installs Playwright: never skip silently
+    import playwright.sync_api as sync_api
+    from PIL import Image
+else:
+    sync_api = pytest.importorskip("playwright.sync_api")
+    Image = pytest.importorskip("PIL.Image")
 
 import panel_server  # noqa: E402
 from presenter_sidecar.config import ROOT  # noqa: E402
@@ -59,6 +65,8 @@ def browser():
         try:
             b = p.chromium.launch(headless=True)
         except Exception as e:  # noqa: BLE001 - browser not installed
+            if os.environ.get("REQUIRE_UI_TESTS"):
+                raise
             pytest.skip(f"chromium not available: {e}")
         yield b
         b.close()
@@ -343,4 +351,42 @@ def test_ai_tab_conversation_block_collapses_and_keeps_the_form(browser, env):
     assert not pn.page.locator("#chat").is_visible() and pn.head("chat").is_visible()
     pn.reload()  # the AI tab and the closed block are both remembered
     assert not pn.is_open("chat") and pn.page.locator("#tab-ai").is_visible()
+    pn.close()
+
+
+@pytest.mark.parametrize("height", [600, 700])
+def test_short_panel_with_the_preview_open_keeps_the_notes(browser, env, height):
+    # A 1080p laptop at 150 % gives a panel of about 650-690 CSS px: every block open, preview open.
+    _, port, _ = env
+    pn = Panel(browser, port, width=400, height=height)
+    pn.head("preview").click()
+    pn.page.wait_for_function("document.querySelector('#previewImg').naturalWidth > 0", timeout=3000)
+    pn.page.wait_for_timeout(300)
+    box = pn.page.evaluate(LAYOUT)
+    assert box["note"] >= 0.25 * height, box                       # at least about 30vh of notes
+    assert box["noteBottom"] <= box["dockTop"] + 1, box            # not under the dock
+    assert abs(box["dockBottom"] - box["inner"]) <= 1, box         # dock still on the bottom edge
+    assert pn.page.locator("#secSel").is_visible()
+    hit = pn.page.evaluate("""(() => { const r = document.querySelector('#note').getBoundingClientRect();
+      const el = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return !!el && document.querySelector('#note').contains(el); })()""")
+    assert hit, "the notes must receive clicks"
+    assert pn.head("preview").is_visible()                         # the dock keeps at least its header row
+    if height >= 700:
+        assert pn.page.locator("#previewImg").bounding_box()["height"] > 40  # a smaller picture, not none
+    pn.close()
+
+
+def test_preview_is_hidden_when_turned_off_or_deleted(browser, env):
+    app, port, mirror = env
+    pn = Panel(browser, port)
+    pn.head("preview").click()
+    pn.page.wait_for_function("document.querySelector('#previewImg').naturalWidth > 0", timeout=3000)
+    mirror.status["preview"] = {"enabled": False, "age": None, "seq": 1, "errors": 0}  # e.g. an encode error
+    pn.page.wait_for_function("document.querySelector('#previewImg').hidden", timeout=3000)
+    assert pn.page.locator("#previewEmpty").inner_text() == "Preview off"
+    mirror.status["preview"] = {"enabled": True, "age": None, "seq": 0, "errors": 0}
+    (app.logs / PREVIEW_FILE).unlink()  # mirror restart: the old picture is gone
+    pn.page.wait_for_function("document.querySelector('#previewEmpty').textContent === 'No image yet'", timeout=3000)
+    assert pn.page.locator("#previewImg").is_hidden()
     pn.close()

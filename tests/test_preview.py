@@ -3,8 +3,9 @@ import os
 import pytest
 
 from presenter_sidecar.config import DEFAULTS, ROOT, load_config
-from presenter_sidecar.preview import (DEFAULT_INTERVAL, DEFAULT_QUALITY, DEFAULT_WIDTH, MIN_INTERVAL, PREVIEW_FILE,
-                                       RETRY_SECS, PreviewWriter, preview_settings, scaled_size, write_atomic)
+from presenter_sidecar.preview import (DEFAULT_INTERVAL, DEFAULT_QUALITY, DEFAULT_WIDTH, LOG_EVERY_SECS, MIN_INTERVAL,
+                                       PREVIEW_FILE, RETRY_SECS, PreviewWriter, preview_settings, scaled_size,
+                                       write_atomic)
 
 
 def test_defaults_and_example_config():
@@ -66,7 +67,7 @@ def test_samples_on_the_interval_and_skips_unchanged_images(tmp_path):
     mtime = (tmp_path / PREVIEW_FILE).stat().st_mtime_ns
     assert w.offer(2.0, b"\x01" * 12, (2, 2)) is False
     assert enc.calls == 1 and w.seq == 1 and (tmp_path / PREVIEW_FILE).stat().st_mtime_ns == mtime
-    assert w.status(3.0) == {"enabled": True, "age": 1.0, "seq": 1}
+    assert w.status(3.0) == {"enabled": True, "age": 1.0, "seq": 1, "errors": 0}
     # A different picture is written.
     assert w.offer(4.0, b"\x02" * 12, (2, 2)) is True and w.seq == 2 and enc.calls == 2
 
@@ -81,7 +82,7 @@ def test_a_deleted_file_is_written_again_even_when_unchanged(tmp_path):
 def test_disabled_writer_is_never_due(tmp_path):
     w = PreviewWriter(tmp_path / PREVIEW_FILE, 0, Enc())
     assert not w.due(0.0) and not w.due(1e9)
-    assert w.status(5.0) == {"enabled": False, "age": None, "seq": 0}
+    assert w.status(5.0) == {"enabled": False, "age": None, "seq": 0, "errors": 0}
 
 
 def test_failed_write_is_retried_soon(tmp_path, monkeypatch):
@@ -118,3 +119,26 @@ def test_logs_dir_is_gitignored():
     # The preview is screen content: it must never be committed.
     text = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
     assert "logs/" in text and "*.jpg" in text
+
+
+def test_failed_writes_are_counted_in_the_status_and_logged_rarely(tmp_path, monkeypatch):
+    logs = []
+    w = PreviewWriter(tmp_path / PREVIEW_FILE, 2.0, Enc(), log=logs.append)
+
+    def busy(src, dst):
+        raise PermissionError("in use")
+
+    monkeypatch.setattr(os, "replace", busy)
+    for t in (0.0, 0.5, 1.0, LOG_EVERY_SECS - 1):
+        w.offer(t, b"\x01" * 12, (2, 2))
+    assert len(logs) == 1 and "in use" in logs[0]          # the first failure only ...
+    w.offer(LOG_EVERY_SECS + 0.1, b"\x01" * 12, (2, 2))
+    assert len(logs) == 2 and "5 so far" in logs[1]        # ... then at most once a minute
+    assert w.status(70.0)["errors"] == 5
+
+
+def test_a_disabled_writer_needs_no_encoder(tmp_path):
+    (tmp_path / PREVIEW_FILE).write_bytes(b"old")
+    w = PreviewWriter(tmp_path / PREVIEW_FILE, 0, None)    # what mirror --cleanup uses
+    w.clear()
+    assert not (tmp_path / PREVIEW_FILE).exists()

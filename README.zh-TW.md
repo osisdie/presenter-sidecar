@@ -197,7 +197,9 @@ py -m venv .venv
 - 展開且面板看得到時，約每 2 秒更新一次；收合或面板被遮住時完全不載入。
   會顯示多久以前（「3 秒前」）和**凍結**／**請稍候**標籤。畫面超過 10 秒沒更新、或 mirror 沒連線時會變灰並加註
   （保留最後一張，變灰）。
-- `"preview_interval_sec": 0` 會在 mirror.py 關掉這個功能（需重開 mirror）。
+- `"preview_interval_sec": 0` 會在 mirror.py 關掉這個功能（需重開 mirror）。預覽出錯時（例如 JPEG 編碼失敗）
+  只會關掉預覽（顯示「預覽已關閉」），投影照常。
+- 講稿至少保留視窗四分之一的高度：面板很矮時，先縮小預覽畫面，最小只剩標題列。
 
 **計時**
 - 段落和分鐘數來自 `pacing_file`（格式見 [`examples/pacing.md`](examples/pacing.md)）。
@@ -324,7 +326,7 @@ Windows 必須能連到 WSL 的 `127.0.0.1`：WSL 預設的 localhost 轉送或 
   （`document.visibilityState`、`document.hasFocus()`、`location.href`）。
 - **觀眾看不到**：來源標題、警告和提示只會出現在面板上。
 - **投影畫面預覽**：`logs/mirror.preview.jpg` 是投影內容的縮小版，所以裡面有螢幕畫面。它只留在這台電腦的 `logs/`
-  （已列入 .gitignore，AI 助手也被禁止讀取），不會上傳，每幾秒原地覆蓋，mirror 啟動和結束時都會刪掉。
+  （已列入 .gitignore，AI 助手也被禁止讀取），不會上傳，每幾秒原地覆蓋，mirror 啟動和結束時都會刪掉（強制關閉後，`stop.bat` 也會刪）。
   面板伺服器只把它給 `127.0.0.1` 的頁面，並加上 `Cache-Control: no-store` 和
   `Cross-Origin-Resource-Policy: same-origin`（其他網站無法嵌入）。設定 `"preview_interval_sec": 0` 就完全不寫這個檔。
 
@@ -334,7 +336,7 @@ Windows 必須能連到 WSL 的 `127.0.0.1`：WSL 預設的 localhost 轉送或 
 python -m pip install -r requirements-dev.txt
 python -m pytest -q                     # 單元測試，不需要螢幕（Linux／macOS／Windows）
 node --test tests/js/*.test.js          # 面板的步驟規則（web/steps.js）跑共用測資，以及 web/view.js
-# 選用：headless 面板測試（tests/test_panel_ui.py，沒裝 Playwright 會自動略過）
+# headless 面板測試（tests/test_panel_ui.py；沒裝 Playwright 會自動略過，CI 的 ui job 會跑）
 python -m pip install playwright pillow && python -m playwright install chromium
 scripts/check/install-hooks.sh          # pre-commit：gitleaks＋私人字詞掃描
 scripts/check/scan-private.sh --all

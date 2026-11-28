@@ -573,8 +573,10 @@ class AppBar:
 
 
 def cleanup_only():
-    """Called by stop.ps1 after a forced kill: release a leftover AppBar and cursor clip."""
+    """Called by stop.ps1 after a forced kill: release a leftover AppBar and cursor clip, and delete
+    the panel preview (screen content must not outlive the mirror)."""
     user32.ClipCursor(None)
+    PreviewWriter(LOGS / PREVIEW_FILE, 0, None).clear()
     f = LOGS / "mirror.appbar"
     if f.exists():
         try:
@@ -774,15 +776,14 @@ def main():
     # Panel preview of the final projector frame. Sampled after the frame is shown, never every frame:
     # downscale first (a few ms), hash the small image and write only when it changed.
     pv_interval, pv_width, pv_quality = preview_settings(CFG)
-    preview = PreviewWriter(LOGS / PREVIEW_FILE, 0, lambda rgb, size: b"")
+    preview = PreviewWriter(LOGS / PREVIEW_FILE, 0, None)
     preview.clear()  # never show a previous run's screen
     pv_size = scaled_size(W, Hh, pv_width)
-    pv_surf = None
+    pv_surf = None   # created on first use, inside the preview's error isolation
     if pv_interval > 0:
         enc = jpeg_encoder(pv_quality)
         if enc:
-            preview = PreviewWriter(LOGS / PREVIEW_FILE, pv_interval, enc)
-            pv_surf = pygame.Surface(pv_size, 0, screen)
+            preview = PreviewWriter(LOGS / PREVIEW_FILE, pv_interval, enc, log=lambda m: log("preview:", m))
             log(f"panel preview: {pv_size[0]}x{pv_size[1]} every {pv_interval:g} s -> logs/{PREVIEW_FILE}")
 
     fps = max(5, min(60, int(CFG.get("fps", 25))))
@@ -1000,6 +1001,8 @@ def main():
                 # ---- panel preview (what the audience sees now, including freeze / blank / popup)
                 if preview.due(t0):
                     try:
+                        if pv_surf is None:
+                            pv_surf = pygame.Surface(pv_size, 0, screen)
                         pygame.transform.smoothscale(screen, pv_size, pv_surf)
                         preview.offer(t0, pygame.image.tobytes(pv_surf, "RGB"), pv_size)
                     except Exception as e:  # noqa: BLE001 - the preview must never stop the projector
@@ -1039,6 +1042,7 @@ def main():
                 if spent < frame_dt:
                     time.sleep(frame_dt - spent)
     finally:
+        preview.clear()  # first: screen content must not outlive the mirror, whatever fails below
         user32.ClipCursor(None)
         appbar.remove()
         pw.free()
@@ -1046,7 +1050,6 @@ def main():
             wgc.stop()
         hot.stop()
         rep.send("/api/mirror", {})
-        preview.clear()
         pygame.quit()
         for f in ("mirror.pid", "mirror.stop"):
             (LOGS / f).unlink(missing_ok=True)

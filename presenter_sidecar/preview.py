@@ -22,6 +22,7 @@ MIN_INTERVAL = 0.5
 DEFAULT_WIDTH = 480
 DEFAULT_QUALITY = 70
 RETRY_SECS = 0.5                      # after a failed write (e.g. the server was reading the file)
+LOG_EVERY_SECS = 60.0                 # failed writes are logged at most this often
 
 
 def _number(v, default: float) -> float:
@@ -70,13 +71,17 @@ class PreviewWriter:
     """Decides when to sample, skips unchanged images and writes the JPEG atomically.
 
     ``encode(rgb, (w, h)) -> jpeg bytes`` is injected (mirror.py uses OpenCV) so the rules are
-    testable without it. Times are ``time.perf_counter()``-style seconds passed in by the caller.
+    testable without it; ``log(message)`` hears about failed writes (the first one, then at most every
+    :data:`LOG_EVERY_SECS`). Times are ``time.perf_counter()``-style seconds passed in by the caller.
     """
 
-    def __init__(self, path: Path, interval: float, encode: Encoder):
+    def __init__(self, path: Path, interval: float, encode: Encoder | None,
+                 log: Callable[[str], None] | None = None):
         self.path = Path(path)
         self.interval = float(interval)
         self.encode = encode
+        self.log = log
+        self.logged_at: float | None = None
         self.next_at = 0.0
         self.key: tuple | None = None      # (size, crc32) of the image in the file
         self.checked: float | None = None  # last time the file was confirmed to match the projector
@@ -104,9 +109,12 @@ class PreviewWriter:
         data = self.encode(rgb, size)
         try:
             write_atomic(self.path, data)
-        except OSError:
+        except OSError as e:
             self.errors += 1
             self.next_at = now + min(self.interval, RETRY_SECS)
+            if self.log and (self.logged_at is None or now - self.logged_at >= LOG_EVERY_SECS):
+                self.logged_at = now
+                self.log(f"write failed ({self.errors} so far, retrying): {e}")
             return False
         self.key, self.checked, self.seq = key, now, self.seq + 1
         return True
@@ -114,7 +122,7 @@ class PreviewWriter:
     def status(self, now: float) -> dict:
         """For the mirror status: ``age`` is relative, so the reader needs no shared clock."""
         age = None if self.checked is None else round(max(0.0, now - self.checked), 1)
-        return {"enabled": self.enabled, "age": age, "seq": self.seq}
+        return {"enabled": self.enabled, "age": age, "seq": self.seq, "errors": self.errors}
 
     def clear(self) -> None:
         """Remove the file (mirror start and exit): no old screen content is left in logs/."""

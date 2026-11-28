@@ -16,11 +16,13 @@ const PREVIEW_REFRESH_MS = 2000;   // reload the image this often, only while op
 const PREVIEW_STALE_SECS = 10;     // older than this: greyed out with a note
 const MIRROR_STALE_SECS = 4;       // same as panel_server.MIRROR_STALE_SECS
 
-// st: /api/state. Returns { connected, load, stale, note, age, badges }:
+// st: /api/state. Returns { connected, load, stale, hide, note, age, badges }:
 //  - load: there is an image worth fetching (mirror connected and a file exists);
-//  - note: null, "offline" (mirror not connected: last image), "off" (preview_interval_sec is 0),
-//    "none" (no image yet) or "old" (older than PREVIEW_STALE_SECS);
-//  - stale: grey the image out (offline or old);
+//  - note: null, "offline" (mirror not connected: last image), "off" (preview turned off: config or an
+//    error), "none" (no image: not written yet, or deleted by a mirror restart) or "old" (older than
+//    PREVIEW_STALE_SECS);
+//  - stale: grey the last image out (offline or old);
+//  - hide: do not show the last image at all ("off" / "none": it may be a previous run's screen);
 //  - badges: projector modes the audience sees now ("blank" wins over "frozen" on the projector,
 //    so it comes first).
 function previewStatus(st, staleSecs = PREVIEW_STALE_SECS) {
@@ -34,7 +36,7 @@ function previewStatus(st, staleSecs = PREVIEW_STALE_SECS) {
   else if (!p.available) note = "none";
   else if (age == null || age > staleSecs) note = "old";
   return { connected, load: connected && !!p.available && p.enabled !== false, age, badges, note,
-    stale: note === "offline" || note === "old" };
+    stale: note === "offline" || note === "old", hide: note === "off" || note === "none" };
 }
 
 // Seconds → { n, unit } for "3 s ago" / "2 min ago".
