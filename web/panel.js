@@ -58,6 +58,13 @@ const I18N = {
     "preview.ageS": "{n} s ago", "preview.ageM": "{n} min ago", "preview.offline": "Mirror not connected",
     "preview.off": "Preview off", "preview.none": "No image yet",
     "preview.old": "Not updated for over {n} s", "preview.frozen": "Frozen", "preview.blank": "Blank",
+    "preview.focusTip": "Click (or Enter): bring the projected window to the front",
+    "preview.focusAria": "Projector view: bring the projected window to the front",
+    "focus.source": "Asked the mirror to bring the projected window to the front",
+    "focus.popup": "Asked the mirror to bring the followed popup to the front",
+    "focus.noSource": "Nothing projected yet: click the window to project and press {pick}",
+    "focus.offline": "Mirror not connected: no window to bring to the front",
+    "focus.failed": "Not sent: the panel server is not responding",
     "profile.tip": "Profile: notes, timer sections and auto-follow rules switch together",
     "profile.label": "Profile", "profile.now": "Profile: {p}",
     "profile.followed": "Profile switched to {p}: the projected page matches its rules ({by}: {title})",
@@ -106,6 +113,13 @@ const I18N = {
     "preview.ageS": "{n} 秒前", "preview.ageM": "{n} 分鐘前", "preview.offline": "mirror 未連線",
     "preview.off": "預覽已關閉", "preview.none": "還沒有畫面",
     "preview.old": "超過 {n} 秒沒有更新", "preview.frozen": "凍結", "preview.blank": "請稍候",
+    "preview.focusTip": "點一下（或按 Enter）：把正在投影的視窗帶到前面",
+    "preview.focusAria": "投影畫面：把正在投影的視窗帶到前面",
+    "focus.source": "已請 mirror 把投影中的視窗帶到前面",
+    "focus.popup": "已請 mirror 把跟隨中的彈窗帶到前面",
+    "focus.noSource": "還沒有投影來源：請點一下要投影的視窗再按 {pick}",
+    "focus.offline": "mirror 未連線：沒有視窗可以帶到前面",
+    "focus.failed": "沒送出：面板伺服器沒有回應",
     "profile.tip": "情境：講稿、計時段落和自動跟隨規則一起切換",
     "profile.label": "情境", "profile.now": "情境：{p}",
     "profile.followed": "已切到情境「{p}」：投影的頁面符合它的規則（依{by}：{title}）",
@@ -132,7 +146,7 @@ function applyI18n() {
 const key = (action) => (mirrorHotkeys || CONF.hotkeys || {})[action] || "?";  // registered keys win (see renderKeys)
 
 // esc / inline / md come from md.js; blockOf / planSteps / stepMove / SPY_OFFSET from steps.js;
-// foldOpen / previewStatus / ageParts / PREVIEW_* from view.js (all loaded first).
+// foldOpen / previewStatus / ageParts / focusToast / activatesButton / PREVIEW_* from view.js (all loaded first).
 
 // ------------------------------------------------------------ collapsible blocks
 // <section class="fold" data-fold="name">: the header button toggles the body (aria-expanded, ▾ / ▸).
@@ -592,6 +606,24 @@ async function previewTick() {
   } catch { /* server gone: the next poll greys the image out */ } finally { pvBusy = false; }
 }
 setInterval(previewTick, PREVIEW_REFRESH_MS);
+
+// Click the preview (or Enter / Space on it): POST /api/focus. mirror.py collects it with its next report
+// (~1 s) and brings the followed popup, else the source window, to the front; the toast reads the server's
+// reply (focusToast in view.js). The fold header is a separate button, so this never folds the block.
+let focusBusy = false;
+async function focusProjected() {
+  if (focusBusy) return;
+  focusBusy = true;
+  let r = null;
+  try { const res = await post("/api/focus"); r = res.ok ? await res.json() : null; } catch {} finally { focusBusy = false; }
+  toast(T(focusToast(r), { pick: key("pick") }), 3000);
+}
+$("#preview").addEventListener("click", focusProjected);
+$("#preview").addEventListener("keydown", (e) => {
+  if (!activatesButton(e)) return;
+  e.preventDefault(); e.stopPropagation();  // Space must not scroll; the notes keys are not for this element
+  focusProjected();
+});
 document.addEventListener("visibilitychange", previewTick);
 
 // ------------------------------------------------------------ profiles

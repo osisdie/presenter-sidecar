@@ -77,3 +77,12 @@ def popup_eligible(w: WindowInfo, *, source: int | None, pid: int | None, own: s
 def newest(seen: dict[int, float], alive: list[int]) -> int | None:
     """The most recently first-seen window among ``alive``."""
     return max(alive, key=lambda h: seen[h]) if alive else None
+
+
+def focus_target(popup: int | None, source: int | None, alive) -> int | None:
+    """The window to bring to the front when the panel's projector preview is clicked: the followed popup
+    while one is projected, else the source. ``alive(hwnd)`` says whether a window still exists."""
+    for h in (popup, source):
+        if h and alive(h):
+            return h
+    return None

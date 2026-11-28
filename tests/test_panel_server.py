@@ -2,6 +2,7 @@ import http.client
 import json
 import os
 import threading
+import time
 
 import pytest
 
@@ -370,3 +371,58 @@ def test_config_profile_is_a_request_once_per_server_start(tmp_path):
     cfg["profile"] = "nope"  # not a profile: no request, the first profile
     p.write_text(json.dumps(cfg), encoding="utf-8")
     assert panel_server.App(p).profile_request() == {"name": "talk", "id": None}
+
+
+# ---- panel -> mirror: POST /api/focus (click the projector preview)
+XP = {"X-Panel": "1"}
+
+
+def test_focus_needs_x_panel_and_a_local_host(server):
+    app, port = server
+    call(port, "POST", "/api/mirror", {"source_state": "ok"}, XP)
+    assert call(port, "POST", "/api/focus", {})[0] == 403
+    assert call(port, "POST", "/api/focus", {}, {"X-Panel": "0"})[0] == 403
+    assert call(port, "POST", "/api/focus", {}, {"X-Panel": "1", "Host": "evil.example:80"})[0] == 403
+    assert len(app.mirror_do) == 0  # nothing queued by the refused requests
+    assert call(port, "POST", "/api/mirror", {}, XP)[1]["do"] == []
+
+
+def test_focus_is_handed_to_the_mirror_once_and_deduplicated(server):
+    app, port = server
+    st, body = call(port, "POST", "/api/mirror", {"source_state": "ok", "source_title": "Slides"}, XP)
+    assert st == 200 and body == {"ok": True, "do": []}
+    for _ in range(3):
+        st, out = call(port, "POST", "/api/focus", {}, XP)
+        assert st == 200 and out == {"ok": True, "queued": True, "mirror": True, "target": "source"}
+    assert len(app.mirror_do) == 1
+    assert call(port, "POST", "/api/mirror", {"source_state": "ok"}, XP)[1]["do"] == ["focus"]
+    assert call(port, "POST", "/api/mirror", {"source_state": "ok"}, XP)[1]["do"] == []  # cleared
+
+
+def test_focus_reply_says_what_the_mirror_would_bring_forward(server):
+    app, port = server
+    out = call(port, "POST", "/api/focus", {}, XP)[1]  # no mirror yet: nothing queued
+    assert out == {"ok": True, "queued": False, "mirror": False, "target": None} and len(app.mirror_do) == 0
+    call(port, "POST", "/api/mirror", {"source_state": "none", "source_title": ""}, XP)
+    out = call(port, "POST", "/api/focus", {}, XP)[1]
+    assert out["queued"] and out["target"] is None  # the mirror itself says "press F7"
+    call(port, "POST", "/api/mirror", {"source_state": "closed"}, XP)
+    assert call(port, "POST", "/api/focus", {}, XP)[1]["target"] is None
+    call(port, "POST", "/api/mirror", {"source_state": "minimized"}, XP)
+    assert call(port, "POST", "/api/focus", {}, XP)[1]["target"] == "source"
+    call(port, "POST", "/api/mirror", {"source_state": "ok", "following_popup": True}, XP)
+    assert call(port, "POST", "/api/focus", {}, XP)[1]["target"] == "popup"
+    with app.lock:
+        app.mirror_ts -= panel_server.MIRROR_STALE_SECS + 1  # the mirror stopped reporting
+    out = call(port, "POST", "/api/focus", {}, XP)[1]
+    assert out["mirror"] is False and out["queued"] is False
+
+
+def test_unknown_mirror_actions_are_not_queued(tmp_path):
+    cfg = json.loads((ROOT / "config.example.json").read_text(encoding="utf-8"))
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps(cfg), encoding="utf-8")
+    app = panel_server.App(p)
+    app.mirror, app.mirror_ts = {"source_state": "ok"}, time.time()
+    assert app.queue_mirror("quit") == {"ok": False, "queued": False, "mirror": True, "target": "source"}
+    assert len(app.mirror_do) == 0

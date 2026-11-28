@@ -1,5 +1,5 @@
 from presenter_sidecar import PANEL_TITLE
-from presenter_sidecar.windows import WindowInfo, auto_pick, newest, popup_eligible, source_allowed
+from presenter_sidecar.windows import WindowInfo, auto_pick, focus_target, newest, popup_eligible, source_allowed
 
 MON = (0, 0, 1920, 1200)
 NEVER = {"ConsoleWindowClass", "CASCADIA_HOSTING_WINDOW_CLASS"}
@@ -70,3 +70,13 @@ def test_newest():
     seen = {1: 10.0, 2: 12.0, 3: 11.0}
     assert newest(seen, [1, 3]) == 3
     assert newest(seen, []) is None
+
+
+def test_focus_target_prefers_the_followed_popup_then_the_source():
+    alive = {10, 50}.__contains__
+    assert focus_target(50, 10, alive) == 50
+    assert focus_target(None, 10, alive) == 10
+    assert focus_target(60, 10, alive) == 10  # popup just closed: the source
+    assert focus_target(None, 11, alive) is None  # source closed
+    assert focus_target(None, None, alive) is None  # nothing picked yet (press F7)
+    assert focus_target(0, 0, lambda h: True) is None

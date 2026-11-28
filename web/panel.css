@@ -208,6 +208,10 @@ main, .tab, .md, .chat, .msg, header, .stageinfo, .docbar, .secnav, .stepnav, .s
 }
 .preview img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .preview.stale img { filter: grayscale(1); opacity: 0.4; }
+/* A button: click / Enter / Space brings the projected window to the front. Inset outlines: the dock clips. */
+.preview[role="button"] { cursor: pointer; }
+.preview[role="button"]:hover { outline: 1px solid var(--accent); outline-offset: -1px; }
+.preview[role="button"]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .previewempty { padding: 8px; text-align: center; }
 .pbadges { position: absolute; top: 4px; left: 4px; display: flex; gap: 4px; flex-wrap: wrap; }
 .pbadge { font-size: 0.62em; font-weight: 700; padding: 0 7px; border-radius: 99px; border: 1px solid; }

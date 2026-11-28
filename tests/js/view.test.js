@@ -3,8 +3,8 @@
 // Run: node --test tests/js/*.test.js
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { FOLD_DEFAULTS, foldOpen, PREVIEW_STALE_SECS, previewStatus, ageParts, pickProfile, profileKey, profileFallback,
-  targetKey, stageIndex } = require("../../web/view.js");
+const { FOLD_DEFAULTS, foldOpen, PREVIEW_STALE_SECS, previewStatus, ageParts, focusToast, activatesButton, pickProfile,
+  profileKey, profileFallback, targetKey, stageIndex } = require("../../web/view.js");
 
 test("fold defaults: preview closed, notes and everything else open", () => {
   assert.equal(foldOpen("preview", null), false);
@@ -115,4 +115,24 @@ test("stageIndex: a repeated heading maps to its own stage; pacing_file stages b
   const paced = [{ key: "Demo", short: "Demo" }, { key: "Demo A", short: "Demo A" }];
   assert.equal(stageIndex(paced, "3. Demo A — code"), 1);
   assert.equal(stageIndex(paced, "Wrap-up"), -1);
+});
+
+test("clicking the preview: the toast follows the server's reply", () => {
+  const r = (o) => ({ ok: true, queued: true, mirror: true, target: "source", ...o });
+  assert.equal(focusToast(r()), "focus.source");
+  assert.equal(focusToast(r({ target: "popup" })), "focus.popup");
+  assert.equal(focusToast(r({ target: null })), "focus.noSource");  // press the pick hotkey (F7) first
+  assert.equal(focusToast(r({ target: "something-new" })), "focus.noSource");
+  assert.equal(focusToast(r({ mirror: false, queued: false, target: null })), "focus.offline");
+  for (const bad of [null, undefined, {}, r({ ok: false })]) assert.equal(focusToast(bad), "focus.failed");
+});
+
+test("Enter and Space press the preview button; modifiers, repeats and IME composition do not", () => {
+  const k = (key, o = {}) => ({ key, repeat: false, ctrlKey: false, altKey: false, metaKey: false, isComposing: false, ...o });
+  assert.equal(activatesButton(k("Enter")), true);
+  assert.equal(activatesButton(k(" ")), true);
+  for (const e of [k("Enter", { repeat: true }), k("Enter", { ctrlKey: true }), k(" ", { altKey: true }),
+    k("Enter", { metaKey: true }), k("Enter", { isComposing: true }), k("Spacebar"), k("a"), k("ArrowRight")]) {
+    assert.equal(activatesButton(e), false, JSON.stringify(e));
+  }
 });

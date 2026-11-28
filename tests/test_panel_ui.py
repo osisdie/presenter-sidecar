@@ -1,4 +1,4 @@
-"""Headless browser checks of the panel: projector preview and collapsible blocks.
+"""Headless browser checks of the panel: projector preview (and clicking it), collapsible blocks.
 
 Skipped unless Playwright and Chromium are installed (dev only, like scripts/media):
     python -m pip install playwright pillow && python -m playwright install chromium
@@ -252,6 +252,83 @@ def test_zh_tw_labels(browser, tmp_path):
         pn.page.wait_for_selector("#previewBadges .pbadge.frozen", timeout=3000)
         assert pn.page.locator("#previewBadges").inner_text().split() == ["請稍候", "凍結"]
         assert "秒前" in pn.page.locator("#previewAge").inner_text()
+        pn.close()
+    finally:
+        mirror.stop = True
+        srv.shutdown()
+        srv.server_close()
+
+
+def focus_posts(pn) -> list[str]:
+    """Record the panel's POST /api/focus requests (the X-Panel header included)."""
+    posts: list[str] = []
+    pn.page.on("request", lambda r: r.method == "POST" and r.url.endswith("/api/focus")
+               and posts.append(r.headers.get("x-panel", "")))
+    return posts
+
+
+def wait_toast(pn, text):
+    pn.page.wait_for_function("(t) => { const e = document.querySelector('#toast');"
+                              " return !e.hidden && e.textContent.includes(t); }", arg=text, timeout=3000)
+
+
+def test_clicking_the_preview_asks_the_mirror_to_bring_the_window_forward(browser, env):
+    app, port, _ = env
+    pn = Panel(browser, port)
+    posts = focus_posts(pn)
+    pn.head("preview").click()  # the fold header only folds: no focus request
+    pn.page.wait_for_function("document.querySelector('#previewImg').naturalWidth > 0", timeout=3000)
+    assert posts == []
+    pv = pn.page.locator("#preview")
+    assert pv.get_attribute("role") == "button" and pv.get_attribute("tabindex") == "0"
+    assert "front" in pv.get_attribute("aria-label") and "front" in pv.get_attribute("title")
+    assert pv.evaluate("(e) => getComputedStyle(e).cursor") == "pointer"
+    pv.click()
+    wait_toast(pn, "bring the projected window to the front")
+    assert posts == ["1"] and pn.is_open("preview")  # clicking the picture never folds the block
+    assert len(app.mirror_do) == 1
+    # Keyboard: focusable, a visible focus ring, Enter and Space press it (Space does not move the notes).
+    pv.focus()
+    pn.page.keyboard.press("Enter")
+    pn.page.wait_for_timeout(300)
+    assert len(posts) == 2
+    assert pv.evaluate("(e) => e.matches(':focus-visible') && getComputedStyle(e).outlineWidth === '2px'")
+    note_top = pn.page.evaluate("document.querySelector('#note').scrollTop")
+    pn.page.keyboard.press(" ")
+    pn.page.wait_for_timeout(300)
+    assert len(posts) == 3 and pn.is_open("preview")
+    assert pn.page.evaluate("document.querySelector('#note').scrollTop") == note_top
+    assert len(app.mirror_do) == 1  # queued once: the mirror brings it forward once
+    pn.close()
+
+
+def test_preview_click_toast_without_a_source_or_a_mirror(browser, env):
+    app, port, mirror = env
+    mirror.status.update(source_title="", source_state="none", warning="No source window.")
+    pn = Panel(browser, port)
+    pn.head("preview").click()
+    pn.page.locator("#preview").click()
+    wait_toast(pn, "press F7")  # the pick hotkey from the config
+    mirror.connected = False
+    with app.lock:
+        app.mirror_ts -= 60  # the mirror stopped reporting
+    app.mirror_do.take(0.0)
+    pn.page.wait_for_timeout(500)  # the toast's own timer is restarted by the next one
+    pn.page.locator("#preview").click()
+    wait_toast(pn, "Mirror not connected")
+    assert len(app.mirror_do) == 0  # nothing waits for a mirror that is gone
+    pn.close()
+
+
+def test_preview_click_toast_in_zh_tw(browser, tmp_path):
+    app, srv, mirror = make_env(tmp_path, lang="zh-TW")
+    try:
+        mirror.status.update(following_popup=True, popup_title="Sign in")
+        pn = Panel(browser, srv.server_address[1])
+        pn.head("preview").click()
+        assert pn.page.locator("#preview").get_attribute("aria-label").startswith("投影畫面")
+        pn.page.locator("#preview").click()
+        wait_toast(pn, "已請 mirror 把跟隨中的彈窗帶到前面")
         pn.close()
     finally:
         mirror.stop = True
