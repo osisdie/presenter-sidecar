@@ -36,6 +36,7 @@ presenter-sidecar 把你選定的「一個視窗」即時投到投影機，加�
 - [熱鍵](#熱鍵)
 - [選擇投影來源](#選擇投影來源)
 - [講者面板](#講者面板)
+- [情境（profile）：課程和會議用同一個面板](#情境profile課程和會議用同一個面板)
 - [用範例網站試講稿自動跟隨](#用範例網站試講稿自動跟隨)
 - [設定](#設定)
 - [選用：在 WSL 執行面板伺服器](#選用在-wsl-執行面板伺服器)
@@ -202,7 +203,8 @@ py -m venv .venv
 - 講稿至少保留視窗四分之一的高度：面板很矮時，先縮小預覽畫面，最小只剩標題列。
 
 **計時**
-- 段落和分鐘數來自 `pacing_file`（格式見 [`examples/pacing.md`](examples/pacing.md)）。
+- 段落和分鐘數來自 `pacing_file`（格式見 [`examples/pacing.md`](examples/pacing.md)），或用 `pacing_notes`
+  直接從講稿讀（見[情境](#情境profile課程和會議用同一個面板)）。
 - 按「開始」，每段按「下一段」，或直接點段落。用掉 80% 變橘色，超時變紅色。
 - 翻到屬於另一段的講稿時，面板會問你要不要把計時切過去。
 
@@ -218,6 +220,42 @@ py -m venv .venv
 
   `claude` 不在 `PATH` 上時設定 `claude_bin`；要指定模型設定 `model`；改完重新啟動。
   問題和它讀到的檔案會送到模型供應商，只在你可以分享這些內容時啟用。
+
+## 情境（profile）：課程和會議用同一個面板
+
+一個**情境**（profile）就是一組講稿檔、計時段落（pacing）和自動跟隨規則。上方的段落計時、講稿和跟隨規則
+永遠屬於同一個情境，所以不會出現「上面是課程計時、下面是會議講稿」對不上的情況。
+
+- 最上層的 `notes_files`、`pacing_file`／`pacing_notes`、`notes_rules` 就是第一個情境，名稱是 `profile_name`
+  （0.3.0 以前的設定檔就是只有一個情境）。其他情境加在 `profiles`：
+
+  ```json
+  "profile_name": "talk",
+  "profiles": [
+    { "name": "meeting",
+      "notes_files": ["examples/notes/meeting.md"],
+      "pacing_notes": "examples/notes/meeting.md",
+      "notes_rules": [{ "title_contains": "Sprint board", "section_heading_contains": "Board walk" }] }
+  ]
+  ```
+- **用講稿當計時**（`pacing_notes`，`pacing_file` 空白時使用）：每個 `##` 段落裡有一行
+  `建議時間：約 15 分鐘` 或 `Suggested time: ~15 min`，就是一個計時段落，依序排列（可以加粗、寫「約」、`~`，
+  或寫 `10–15` 這種範圍，取第一個數字）。`Part 2: Board walk` 的按鈕會顯示 `Part 2`。沒有這一行的段落
+  （例如附錄）不計時。範例見 [`examples/notes/meeting.md`](examples/notes/meeting.md)。
+- **切換**：講稿／AI 助手分頁列最右邊的小選單（有兩個以上情境才顯示）。講稿清單、段落計時和跟隨規則一起換。
+  每個情境各自保留計時、開著的講稿檔和位置，切回來時另一個情境的計時還在繼續跑。
+- **跨情境自動跟隨**（`profile_auto_switch`，預設開）：先比對目前情境的規則；都不符合時才比對其他情境，
+  符合就切換情境並跳出提示。關掉它就會一直留在你選的情境。
+- **用指定情境啟動**：`start.bat -Profile meeting`（或 `start.ps1 -Profile meeting`）、`panel_server.py --profile meeting`、
+  環境變數 `PRESENTER_PROFILE`、設定檔的 `"profile"`，依序優先；都沒有就用第一個情境。在 `start.bat` 旁邊放一個 `meeting.bat`：
+
+  ```bat
+  @echo off
+  call "%~dp0start.bat" -Profile meeting
+  ```
+
+  面板伺服器已經在跑時，`-Profile` 會請開著的面板切換一次；之後按 F5 會保留你手動選的情境。
+- 在 `config.json` 新增或改名情境後，在面板按 F5。情境裡的講稿、計時和規則一樣存檔即生效。
 
 ## 用範例網站試講稿自動跟隨
 
@@ -272,6 +310,10 @@ repo 裡只有 `config.example.json`；你自己的 `config.json` 不進版控�
 | `notes_auto_follow`／`notes_follow_doc` | `true`／`""` | 自動跟隨預設值；要在哪份講稿裡跳（空白＝目前在看的那份） |
 | `cdp_url` | `""` | 網址規則用的 DevTools 位址；空白＝只用標題規則 |
 | `notes_rules` | 範例 | 自動跟隨規則 |
+| `pacing_notes` | `""` | `pacing_file` 空白時，用這個講稿檔當計時（每個 `##` 段落寫 `建議時間：約 N 分鐘`） |
+| `profile_name`／`profiles` | `default`／`[]` | 上面這些設定組成的情境名稱；其他情境，各有 `name`、`notes_files`、`pacing_file` 或 `pacing_notes`、`notes_rules`、`notes_follow_doc`（見[情境](#情境profile課程和會議用同一個面板)） |
+| `profile` | `""` | 啟動時的情境（空白＝第一個）；`--profile`／`PRESENTER_PROFILE`／`start.bat -Profile` 優先 |
+| `profile_auto_switch` | `true` | 投影的頁面符合其他情境的規則時，自動跟隨可以切換情境 |
 | `ai_helper` | `enabled: false` | `claude_bin`、`model`、`timeout_sec`、`extra_args`、`workdir`、`system_prompt` |
 
 ## 選用：在 WSL 執行面板伺服器
@@ -346,9 +388,9 @@ scripts/check/scan-private.sh --all
 |---|---|
 | `mirror.py` | Windows：選來源、擷取、縮放、投影視窗、游標、熱鍵、AppBar |
 | `panel_server.py` | 面板網頁伺服器與 AI 助手後端（只用標準函式庫） |
-| `presenter_sidecar/` | 純邏輯模組：幾何、視窗規則、講稿規則、熱鍵、設定、CDP、訊息 |
+| `presenter_sidecar/` | 純邏輯模組：幾何、視窗規則、講稿規則、情境、熱鍵、設定、CDP、預覽、訊息 |
 | `web/` | 面板前端（`index.html`、`panel.js`、`panel.css`；不碰 DOM 的 `md.js`、`steps.js`、`view.js` 可在 node 測試）與 `selftest/` 測試頁 |
-| `examples/` | 虛構的講稿（英文與繁體中文）、檢查清單、計時檔、範例網站 |
+| `examples/` | 虛構的講稿（英文與繁體中文）、會議講稿（第二個情境）、檢查清單、計時檔、範例網站 |
 | `start.ps1`／`stop.ps1`（`.bat`） | 啟動與關閉全部 |
 | `tests/` | 單元測試；裝了 Playwright 時，`test_panel_ui.py` 會用 headless Chromium 操作面板 |
 | `scripts/media/` | 重新產生 `docs/media/` 的範例截圖（headless；需要 `playwright` 和 `pillow`） |
