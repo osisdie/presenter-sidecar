@@ -163,10 +163,11 @@ separate windows, so window capture never sees them. Two ways to show them:
 
 - **Menu overlay** (`menu_overlay`, on by default): menus that overlap the projected window are copied
   from the screen and pasted onto the projector, at the same place and scale as the window. It pastes the
-  projected program's own menus, and other programs' menus (Explorer's belong to `explorer.exe`, tray
-  menus to the tray icon's program) only while you work in the projected window, the taskbar or the tray:
-  when another program has the focus over the projected window (a chat window over the slides), its menus,
-  drop-downs and autofill lists are not pasted. Never the panel's own menus; it follows a projected popup. A menu that sticks out of the window is cut at the window's edge:
+  projected window's own menus (a menu owned by another window is judged by that window: a second Chrome
+  or Explorer window over the slides is not the projected window, even in the same process), and other
+  programs' menus (Explorer's belong to `explorer.exe`, tray menus to the tray icon's program) only while
+  you work in the projected window, the taskbar or the tray: when another window has the focus over the
+  projected window (a chat window over the slides), its menus, drop-downs and autofill lists are not pasted. Never the panel's own menus; it follows a projected popup. A menu that sticks out of the window is cut at the window's edge:
   nothing outside the projected window reaches the projector. While frozen (F8) the projector keeps the
   menus it showed when you pressed F8; the blank screen (F9) shows none.
   - The window classes treated as menus are in `menu_overlay_classes`: `#32768` (Win32 menus, tray and taskbar menus), `Chrome_WidgetWin_2` (Chrome / Edge menus and drop-downs), `Xaml_WindowedPopupClass` and `Microsoft.UI.Content.PopupWindowSiteBridge` (Windows 11 context menus), `DropDown`, `ComboLBox`, `tooltips_class32`, `MozillaDropShadowWindowClass` (Firefox), `Net UI Tool Window` (Office).
@@ -176,9 +177,9 @@ separate windows, so window capture never sees them. Two ways to show them:
     default: those can be other programs' floating windows).
   - Set `"menu_overlay": false` to turn it off.
   - **Privacy:** what is pasted is a screen copy of the menu's area, so a menu, drop-down or autofill list
-    that lies over the projected window is shown to the audience, cut at the window's edge. A menu of another
-    program that shares the projected program's process (a second window of the same browser) counts as the
-    projected program's. Turn the overlay off (`"menu_overlay": false`) if that is a concern.
+    that lies over the projected window is shown to the audience, cut at the window's edge. A menu without an
+    owner window (a Win32 menu) of the projected program's process counts as the projected program's unless
+    another titled window of that process has the focus. Turn the overlay off (`"menu_overlay": false`) if that is a concern.
 - **Region mode** (hotkey `region`, default **Ctrl+Alt+R**; `"region_mode": true` starts in it): instead of
   the window, the mirror copies the window's rectangle on the screen every frame, so *everything* on top
   of it is projected: menus, Save As and file pickers, system dialogs, tooltips, notifications. The menu
@@ -396,7 +397,7 @@ except `notes_files`, `pacing_file`, `pacing_notes`, `notes_rules`, `profile_nam
 | `menu_overlay` | `true` | Paste menus over the projected window ([Menus and region mode](#menus-and-region-mode)) |
 | `menu_overlay_classes` | menu classes | Window classes treated as menus |
 | `menu_overlay_heuristic` | `false` | Also paste unknown small captionless tool / topmost popups (`menu_overlay_max_size`, default `[1600, 1400]`) |
-| `menu_overlay_margin` / `menu_overlay_interval_sec` | `8` / `0.1` | How near (px) a menu must be; seconds between window scans (open menus are re-checked every frame) |
+| `menu_overlay_margin` / `menu_overlay_interval_sec` | `8` / `0.1` | Scan pre-filter (px around the window; a menu is always cut at the window's edge, so it only decides which windows are checked); seconds between window scans (open menus are re-checked every frame) |
 | `region_mode` | `false` | Start in region mode (toggle: Ctrl+Alt+R) |
 | `fps` / `smooth_scale` | `25` / `true` | Frame-rate cap, scaling quality |
 | `preview_interval_sec` | `2` | Seconds between projector-preview pictures for the panel; `0` turns the preview off (min. 0.5) |

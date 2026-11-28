@@ -14,11 +14,13 @@ Clipping: a menu is cut to the projected window's visible frame. Nothing outside
 rectangle reaches the projector (the same promise as region mode), and a menu that sticks out of the
 window is shown only up to the window edge.
 
-Whose menus (:func:`context_ok`): a window capture keeps projecting a window that another program
-covers, so a menu over the frame may belong to that other program. A menu is pasted when it belongs to
-the projected program (same process as the source or the followed popup), or when the user is working
-in the projected window, the taskbar or the tray (:class:`Foreground`). Menus of a program that has the
-focus over the projected window are not pasted.
+Whose menus (:func:`menu_allowed`, :func:`context_ok`): a window capture keeps projecting a window that
+another window covers, so a menu over the frame may belong to that other window. Same process is not
+same window: Chrome / Edge run every window and PWA in one process, and every Explorer window belongs to
+explorer.exe. So an OWNED popup (Chrome menus, drop-downs and autofill lists, most tooltips) is judged by
+its root owner window: pasted when that is the source or the followed popup, never when it is another
+visible, titled window. Ownerless menus (``#32768``, tray menus, XAML hosts) fall back to the process and
+the foreground (:class:`Foreground`): the user working in the projected window, the taskbar or the tray.
 """
 from __future__ import annotations
 
@@ -60,16 +62,21 @@ class TopWin:
     pid: int = 0
     style: int = 0
     exstyle: int = 0
+    owner: int = 0              # root owner window (GA_ROOTOWNER), 0 when the window has no owner
+    owner_cls: str = ""
+    owner_shown: bool = False   # the root owner is a visible window with a title (a real app window)
 
 
 @dataclass(frozen=True)
 class Foreground:
-    """The foreground window at a scan: its root window, process, class and visibility."""
+    """The foreground window at a scan: its root owner window (GA_ROOTOWNER, so a focused menu resolves
+    to the window that owns it), process, class, visibility and whether it has a title."""
 
     root: int = 0
     pid: int = 0
     cls: str = ""
     visible: bool = True
+    titled: bool = False
 
 
 @dataclass(frozen=True)
@@ -77,7 +84,7 @@ class OverlaySettings:
     enabled: bool = True
     classes: frozenset = frozenset(DEFAULT_MENU_CLASSES)
     heuristic: bool = False        # also paste unknown captionless popups (WS_POPUP + tool window / topmost)
-    margin: int = 8                # "adjacent": within this many pixels of the frame
+    margin: int = 8                # scan pre-filter only: menus are always cut to the frame when pasted
     max_size: tuple[int, int] = (1600, 1400)   # heuristic only: bigger popups are not menus
     interval: float = 0.1          # seconds between full window scans (positions are re-checked every frame)
 
@@ -162,46 +169,81 @@ def _skipped(w: TopWin, skip_hwnds, skip_pids, private: list[Rect]) -> bool:
     return any(intersects(w.rect, p) for p in private)
 
 
-def context_ok(fg: Foreground, owner_hwnds, owner_pids, s: OverlaySettings, prev_ok: bool) -> bool:
-    """May menus of OTHER processes than the projected program be pasted at this scan?
+def foreign(fg: Foreground | None, owner_hwnds) -> bool:
+    """Is the foreground another real window (visible, titled, not the source or the followed popup)?
+    Then the user works there, even when it runs in the projected program's process (a second Chrome
+    window, another Explorer window)."""
+    return bool(fg and fg.root and fg.root not in owner_hwnds and fg.visible and fg.titled
+                and fg.cls not in SHELL_CLASSES)
 
-    Yes while the user works in the projected program or the shell:
 
-    - (b) the foreground root is the source or the followed popup, or belongs to their process. Win32
-      ``#32768`` menus never take the foreground, so the owner stays foreground while one is open;
+def open_menu_pids(wins: list[TopWin]) -> frozenset:
+    """Processes that have a Win32 ``#32768`` menu open (anywhere on screen)."""
+    return frozenset(w.pid for w in wins if w.cls == "#32768" and w.pid)
+
+
+def context_ok(fg: Foreground, owner_hwnds, owner_pids, s: OverlaySettings, prev_ok: bool,
+               menu_pids=frozenset()) -> bool:
+    """May ownerless menus of OTHER processes than the projected program be pasted at this scan?
+
+    Yes while the user works in the projected window or the shell:
+
+    - (b) the foreground root is the source or the followed popup, or an untitled / invisible window of
+      their process (a menu host that took the focus). Win32 ``#32768`` menus never take the foreground,
+      so the owner stays foreground while one is open. Another titled window of the same process (a
+      second Chrome window over the slides) does NOT count (:func:`foreign`);
     - (c) the foreground is the taskbar or the tray (:data:`SHELL_CLASSES`): tray and taskbar menus;
+    - (c) the foreground is an invisible window whose process has a ``#32768`` menu open
+      (``menu_pids``): a tray program brings its hidden window to the front and opens its own menu;
     - (c) right after such a scan (``prev_ok``), the foreground is a menu window itself (a menu host
-      that took the focus when it opened) or an invisible window (a tray program brings its hidden
-      window to the front before it opens its tray menu).
+      that took the focus when it opened) or an invisible window.
 
     A visible window of another program in front (a chat window over the slides) makes it False, so
     that program's menus, drop-downs and autofill lists are not pasted.
     """
     if fg.root and fg.root in owner_hwnds:
         return True
-    if fg.pid and fg.pid in owner_pids:
+    if fg.pid and fg.pid in owner_pids and not foreign(fg, owner_hwnds):
         return True
     if fg.cls in SHELL_CLASSES:
+        return True
+    if not fg.visible and fg.pid and fg.pid in menu_pids:
         return True
     return prev_ok and (not fg.visible or (fg.cls in s.classes and fg.cls not in IGNORED_CLASSES))
 
 
-def menu_allowed(w: TopWin, owner_pids, ctx_ok: bool) -> bool:
-    """(a) a menu of the projected program itself (same process as the source or the followed popup)
-    is always pasted; any other process's menu only while :func:`context_ok`."""
-    return w.pid in owner_pids or ctx_ok
+def menu_allowed(w: TopWin, owner_hwnds, owner_pids, ctx_ok: bool, fg: Foreground | None = None) -> bool:
+    """Is this menu the projected window's (or allowed by the context)?
+
+    - an owned popup whose root owner is the source or the followed popup: pasted;
+    - an owned popup whose root owner is another visible, titled window (a second Chrome window, a chat
+      window): never pasted, whatever its process;
+    - otherwise (no owner, or a hidden / untitled / taskbar owner): (a) a menu of the projected
+      program's process is pasted, unless the foreground is another titled window of that same process
+      (its menu, not the slides'); any other process's menu only while :func:`context_ok`.
+    """
+    if w.owner:
+        if w.owner in owner_hwnds:
+            return True
+        if w.owner_shown and w.owner_cls not in SHELL_CLASSES:
+            return False
+    if w.pid in owner_pids and not (foreign(fg, owner_hwnds) and fg.pid == w.pid):
+        return True
+    return ctx_ok
 
 
 def pick_menus(wins: list[TopWin], frame: Rect, s: OverlaySettings, *, skip_hwnds=frozenset(),
                skip_pids=frozenset(), private: list[Rect] | None = None, owner_pids=None,
-               ctx_ok: bool = True) -> list[TopWin]:
-    """Menu-like windows over (or next to) ``frame``, bottom-most first so later ones are pasted on top.
+               owner_hwnds=frozenset(), ctx_ok: bool = True, fg: Foreground | None = None) -> list[TopWin]:
+    """Menu-like windows over (or within ``margin`` of) ``frame``, bottom-most first so later ones are
+    pasted on top. The margin is only a scan pre-filter: :func:`overlay_blits` cuts every menu to the
+    frame, so a menu that only sits next to the frame shows nothing.
 
     ``wins`` comes from EnumWindows, which lists top-level windows topmost first. Other processes count
-    (Explorer menus belong to explorer.exe) under :func:`menu_allowed`: ``owner_pids`` are the projected
-    program's processes (None: no check), ``ctx_ok`` is :func:`context_ok`. ``skip_hwnds`` are the
-    tool's own windows and the projected window itself, ``skip_pids`` the panel browser's process,
-    ``private`` the panel's rect.
+    (Explorer menus belong to explorer.exe) under :func:`menu_allowed`: ``owner_hwnds`` / ``owner_pids``
+    are the source and the followed popup and their processes (``owner_pids`` None: no check), ``ctx_ok``
+    is :func:`context_ok`, ``fg`` the foreground. ``skip_hwnds`` are the tool's own windows and the
+    projected window itself, ``skip_pids`` the panel browser's process, ``private`` the panel's rect.
     """
     if not s.enabled:
         return []
@@ -209,7 +251,7 @@ def pick_menus(wins: list[TopWin], frame: Rect, s: OverlaySettings, *, skip_hwnd
     out = [w for w in wins
            if w.rect[0] < w.rect[2] and w.rect[1] < w.rect[3] and near(w.rect, frame, s.margin)
            and menu_like(w, s) and not _skipped(w, skip_hwnds, skip_pids, private)
-           and (owner_pids is None or menu_allowed(w, owner_pids, ctx_ok))]
+           and (owner_pids is None or menu_allowed(w, owner_hwnds, owner_pids, ctx_ok, fg))]
     out.reverse()
     return out
 
@@ -265,13 +307,21 @@ def panel_windows(wins: list[TopWin], panel_pids, keep_hwnds=frozenset()) -> lis
             and w.rect[0] < w.rect[2] and w.rect[1] < w.rect[3]]
 
 
-def overlay_action(*, live: bool, region: bool, enabled: bool, frozen: bool) -> str:
+def overlay_action(*, live: bool, region: bool, enabled: bool, frozen: bool, blanked: bool = False) -> str:
     """What the menu overlay does this frame: "update" (scan and grab the menus), "keep" (frozen: the
-    menus pasted when F8 was pressed stay) or "clear" (blank screen, no live frame, region mode — which
-    shows the menus itself — or overlay off)."""
+    menus pasted when F8 was pressed stay; blank screen: nothing is drawn, but the menus stay with the
+    last frame, so F9 → F8 → F9 freezes that frame with its menus) or "clear" (no live frame, region
+    mode — which shows the menus itself — or overlay off)."""
     if live and not region and enabled:
         return "update"
-    return "keep" if frozen else "clear"
+    return "keep" if frozen or blanked else "clear"
+
+
+def merge_panel_pids(old, found, alive) -> set:
+    """The panel browser's processes: those found by the panel's title now, plus earlier ones that are
+    still running (``alive(pid)``). A reload briefly changes the title; the masks and skips must not
+    lapse meanwhile."""
+    return set(found) | {p for p in old if p and alive(p)}
 
 
 def region_grab(src_state: str) -> bool:

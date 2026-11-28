@@ -1,19 +1,22 @@
+from dataclasses import replace
+
 import pytest
 
 from presenter_sidecar.config import DEFAULTS, load_config
 from presenter_sidecar.geometry import fit_letterbox, map_point
 from presenter_sidecar.overlay import (DEFAULT_MENU_CLASSES, WS_CAPTION, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
-                                       Foreground, OverlaySettings, TopWin, clip, context_ok, flag, map_rect,
-                                       menu_allowed, menu_like, near, over_any, overlay_action, overlay_blits,
-                                       overlay_settings, panel_windows, pick_menus, popup_style, private_masks,
+                                       Foreground, OverlaySettings, TopWin, clip, context_ok, flag, foreign,
+                                       map_rect, menu_allowed, menu_like, merge_panel_pids, near, open_menu_pids,
+                                       over_any, overlay_action, overlay_blits, overlay_settings, panel_windows, pick_menus, popup_style, private_masks,
                                        region_grab, unknown_popups)
 
 FRAME = (100, 50, 1700, 950)      # projected window, 1600 x 900
 S = OverlaySettings()
 
 
-def win(hwnd, cls, rect, pid=10, style=WS_POPUP, exstyle=0):
-    return TopWin(hwnd=hwnd, cls=cls, rect=rect, pid=pid, style=style, exstyle=exstyle)
+def win(hwnd, cls, rect, pid=10, style=WS_POPUP, exstyle=0, owner=0, owner_cls="", owner_shown=False):
+    return TopWin(hwnd=hwnd, cls=cls, rect=rect, pid=pid, style=style, exstyle=exstyle, owner=owner,
+                  owner_cls=owner_cls, owner_shown=owner_shown)
 
 
 def test_settings_defaults_and_config_keys():
@@ -181,17 +184,19 @@ def test_string_false_turns_the_overlay_off():
 
 # ---- whose menus are pasted (context_ok / menu_allowed / pick_menus with owner_pids)
 CHROME, EXPLORER, CHAT, TEAMS = 100, 200, 300, 400       # process ids
-SRC, CHAT_WIN = 1000, 3000                                # window handles
+SRC, CHAT_WIN, CHROME_B = 1000, 3000, 1002               # window handles
 
 
 def owners(src_pid):
     return {SRC}, {src_pid}
 
 
-def scan(src_pid, fg, menu, prev_ok=False):
+def scan(src_pid, fg, menu, prev_ok=False, others=()):
+    # Like MenuOverlay._scan: open #32768 menus anywhere count for the tray rule.
     hwnds, pids = owners(src_pid)
-    ok = context_ok(fg, hwnds, pids, S, prev_ok)
-    return [w.hwnd for w in pick_menus([menu], FRAME, S, owner_pids=pids, ctx_ok=ok)], ok
+    ok = context_ok(fg, hwnds, pids, S, prev_ok, open_menu_pids([menu, *others]))
+    return [w.hwnd for w in pick_menus([menu], FRAME, S, owner_pids=pids, owner_hwnds=hwnds, ctx_ok=ok,
+                                       fg=fg)], ok
 
 
 def test_chrome_source_and_chrome_menu_are_pasted():
@@ -234,7 +239,18 @@ def test_tray_program_brings_its_hidden_window_to_the_front():
     menu = win(1, "#32768", (1500, 700, 1700, 950), pid=TEAMS)
     hidden = Foreground(root=6, pid=TEAMS, cls="TeamsHiddenWnd", visible=False)
     assert scan(CHROME, hidden, menu, prev_ok=True) == ([1], True)
-    assert scan(CHROME, hidden, menu, prev_ok=False) == ([], False)
+    # Opened from the panel or another app (the 0.1 s sample missed the taskbar): its own menu is open.
+    assert scan(CHROME, hidden, menu, prev_ok=False) == ([1], True)
+
+
+def test_hidden_foreground_without_its_own_menu_is_not_a_tray_menu():
+    # Another program's menu while some hidden window has the focus: no prev_ok, no menu of that process.
+    menu = win(1, "Chrome_WidgetWin_2", (300, 300, 500, 500), pid=CHAT)
+    hidden = Foreground(root=6, pid=TEAMS, cls="TeamsHiddenWnd", visible=False)
+    assert scan(CHROME, hidden, menu) == ([], False)
+    assert scan(CHROME, hidden, menu, others=[win(9, "#32768", (0, 0, 10, 10), pid=CHAT)]) == ([], False)
+    assert not context_ok(Foreground(root=6, pid=TEAMS, visible=True), {SRC}, {CHROME}, S, False,
+                          frozenset({TEAMS}))  # a visible window is not a tray program's hidden window
 
 
 def test_menu_host_taking_the_focus_keeps_the_context_from_the_previous_scan():
@@ -248,7 +264,73 @@ def test_followed_popup_counts_as_the_projected_program():
     popup_hwnd, popup_pid = 1001, 500
     fg = Foreground(root=popup_hwnd, pid=popup_pid, cls="#32770")
     assert context_ok(fg, {SRC, popup_hwnd}, {CHROME, popup_pid}, S, False)
-    assert menu_allowed(win(1, "#32768", (0, 0, 1, 1), pid=popup_pid), {CHROME, popup_pid}, False)
+    assert menu_allowed(win(1, "#32768", (0, 0, 1, 1), pid=popup_pid), {SRC, popup_hwnd}, {CHROME, popup_pid},
+                        False)
+    owned = win(1, "Chrome_WidgetWin_2", (0, 0, 1, 1), pid=popup_pid, owner=popup_hwnd, owner_shown=True)
+    assert menu_allowed(owned, {SRC, popup_hwnd}, {CHROME, popup_pid}, False, fg)
+
+
+# ---- same process is not same window (Chrome / Edge windows and PWAs, Explorer windows)
+FG_A = Foreground(root=SRC, pid=CHROME, cls="Chrome_WidgetWin_1", titled=True)
+FG_B = Foreground(root=CHROME_B, pid=CHROME, cls="Chrome_WidgetWin_1", titled=True)
+
+
+def test_same_pid_different_covering_window_is_not_pasted():
+    # Chrome window B covers part of the slides in window A and has the focus; B's omnibox / autofill
+    # drop-down (owned by B, same chrome.exe process) lies over the projected rect.
+    owned_by_b = win(1, "Chrome_WidgetWin_2", (300, 300, 500, 500), pid=CHROME, owner=CHROME_B,
+                     owner_cls="Chrome_WidgetWin_1", owner_shown=True)
+    assert scan(CHROME, FG_B, owned_by_b) == ([], False)
+    # ...not even while A is foreground (B is topmost, say): the owner decides, not the focus.
+    assert scan(CHROME, FG_A, owned_by_b) == ([], True)
+    # An ownerless popup of the same process while B has the focus: B's, not the slides'.
+    assert scan(CHROME, FG_B, win(1, "Chrome_WidgetWin_2", (300, 300, 500, 500), pid=CHROME)) == ([], False)
+    assert foreign(FG_B, {SRC}) and not foreign(FG_A, {SRC})
+
+
+def test_chrome_menu_owned_by_the_slides_window_is_pasted():
+    owned_by_a = win(1, "Chrome_WidgetWin_2", (300, 300, 500, 500), pid=CHROME, owner=SRC,
+                     owner_cls="Chrome_WidgetWin_1", owner_shown=True)
+    # Also when the menu took the focus: the mirror resolves the foreground to its root owner, window A.
+    assert scan(CHROME, FG_A, owned_by_a) == ([1], True)
+    # Owned by the slides window, pasted even while another program has the focus (like a tooltip).
+    chat = Foreground(root=CHAT_WIN, pid=CHAT, cls="Chrome_WidgetWin_1", titled=True)
+    assert scan(CHROME, chat, owned_by_a) == ([1], False)
+    # Ownerless Chrome popup while A is foreground: pasted.
+    assert scan(CHROME, FG_A, win(1, "Chrome_WidgetWin_2", (300, 300, 500, 500), pid=CHROME)) == ([1], True)
+
+
+def test_explorer_source_and_owned_or_untitled_menu_host():
+    xaml = win(1, "Xaml_WindowedPopupClass", (300, 300, 500, 500), pid=EXPLORER)
+    # The XAML menu host holds the focus: untitled, same process → the context holds.
+    host = Foreground(root=7777, pid=EXPLORER, cls="Xaml_WindowedPopupClass", titled=False)
+    assert scan(EXPLORER, host, xaml) == ([1], True)
+    # Owned by the projected Explorer window.
+    assert scan(EXPLORER, host, replace(xaml, owner=SRC, owner_cls="CabinetWClass", owner_shown=True)) == ([1], True)
+    # Another Explorer window over the slides has the focus: its menus are not pasted.
+    other = Foreground(root=2002, pid=EXPLORER, cls="CabinetWClass", titled=True)
+    assert scan(EXPLORER, other, xaml) == ([], False)
+    assert scan(EXPLORER, other, replace(xaml, owner=2002, owner_cls="CabinetWClass", owner_shown=True)) == ([], False)
+
+
+def test_source_win32_menu_and_taskbar_owned_menus():
+    menu = win(1, "#32768", (300, 300, 500, 500), pid=CHROME)
+    assert scan(CHROME, FG_A, menu) == ([1], True)
+    # A menu owned by the taskbar (visible, untitled or titled: the shell is never "another window").
+    tray_owned = win(1, "Xaml_WindowedPopupClass", (1500, 700, 1700, 950), pid=EXPLORER, owner=5,
+                     owner_cls="Shell_TrayWnd", owner_shown=True)
+    assert scan(CHROME, Foreground(root=5, pid=EXPLORER, cls="Shell_TrayWnd", titled=True), tray_owned) == ([1], True)
+    # A menu owned by a tray program's hidden window falls back to the context.
+    hidden_owner = win(1, "#32768", (1500, 700, 1700, 950), pid=TEAMS, owner=6, owner_cls="TeamsHiddenWnd")
+    assert scan(CHROME, Foreground(root=6, pid=TEAMS, visible=False), hidden_owner) == ([1], True)
+    assert scan(CHROME, FG_B, hidden_owner) == ([], False)
+
+
+def test_tooltip_of_a_topmost_same_process_window_is_not_pasted():
+    # Source foreground, a topmost window of the same process over the slides shows its own tooltip.
+    tip = win(1, "tooltips_class32", (300, 300, 500, 340), pid=CHROME, owner=CHROME_B,
+              owner_cls="Chrome_WidgetWin_1", owner_shown=True)
+    assert scan(CHROME, FG_A, tip) == ([], True)
 
 
 def test_no_owner_check_when_owner_pids_is_none():
@@ -275,10 +357,23 @@ def test_panel_windows_masks_every_window_of_the_panel_process():
     (True, False, False, False, "clear"),   # overlay off
     (False, False, True, True, "keep"),     # F8: the menus pasted when frozen stay
     (False, True, True, True, "keep"),      # region toggled while frozen: the frozen frame keeps its menus
-    (False, False, True, False, "clear"),   # blank / no live frame
+    (False, False, True, False, "clear"),   # no live frame
 ])
 def test_overlay_action(live, region, enabled, frozen, want):
     assert overlay_action(live=live, region=region, enabled=enabled, frozen=frozen) == want
+
+
+def test_blank_keeps_the_menus_for_a_later_freeze():
+    # Live menu → F9 blank → F8 freeze → F9 unblank: the frozen frame still has its menus.
+    assert overlay_action(live=False, region=False, enabled=True, frozen=False, blanked=True) == "keep"
+    assert overlay_action(live=False, region=False, enabled=True, frozen=True, blanked=True) == "keep"
+
+
+def test_merge_panel_pids_keeps_running_processes():
+    alive = {5, 6}.__contains__
+    assert merge_panel_pids({5, 7}, set(), alive) == {5}          # title briefly changed: 5 still runs
+    assert merge_panel_pids({5}, {8}, alive) == {5, 8}
+    assert merge_panel_pids({7, 0}, set(), alive) == set()        # exited
 
 
 def test_region_grab_skips_the_projector_feedback_loop():

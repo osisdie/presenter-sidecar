@@ -74,15 +74,21 @@ All notable changes to this project are documented here. The format follows
   - A window scan every `menu_overlay_interval_sec` (0.1 s) finds visible windows of `menu_overlay_classes`
     (`#32768`, `Chrome_WidgetWin_2`, `Xaml_WindowedPopupClass`, `Microsoft.UI.Content.PopupWindowSiteBridge`,
     `DropDown`, `ComboLBox`, `tooltips_class32`, `MozillaDropShadowWindowClass`, `Net UI Tool Window`;
-    `SysShadow` never) over or within `menu_overlay_margin` (8 px) of the projected window; found menus are
-    re-checked every frame and grabbed with mss.
-  - Whose menus: the projected program's (same process as the source or the followed popup) always; another
-    process's (Explorer, tray icons) only while the foreground is the projected window, its process, the
-    taskbar or the tray, or right after that a menu host or a hidden tray window. A covering program's menus,
-    drop-downs and autofill lists are not pasted (`overlay.context_ok`, `overlay.menu_allowed`).
+    `SysShadow` never) over or within `menu_overlay_margin` (8 px, a scan pre-filter: menus are always cut at
+    the window's edge) of the projected window; found menus are re-checked every frame and grabbed with mss.
+  - Whose menus: same process is not same window (Chrome / Edge run every window in one process, every
+    Explorer window is `explorer.exe`). An owned popup is judged by its root owner window (`GA_ROOTOWNER`):
+    pasted when that is the source or the followed popup (or their own root owner), never when it is
+    another visible, titled window. Ownerless menus (`#32768`, tray menus, XAML hosts): the projected
+    program's process unless another titled window of it has the focus; another process's (Explorer, tray
+    icons) only while the foreground is the projected window, an untitled window of its process, the taskbar
+    or the tray, a hidden window whose process has its own `#32768` menu open (a tray menu opened from the
+    panel or another app), or right after that a menu host. A covering window's menus, drop-downs, autofill
+    lists and tooltips are not pasted (`overlay.context_ok`, `overlay.menu_allowed`).
   - Placed with the frame's own letterbox mapping (same as the pointer) and cut at the projected window's edge.
   - Never the panel's menus (its process, its rect, its windows). Follows a projected popup; F8 keeps the
-    menus of the frozen frame, F9 shows none. The pointer is drawn over pasted menus.
+    menus of the frozen frame, F9 shows none (and F9 → F8 → F9 freezes the
+    last frame with its menus). The pointer is drawn over pasted menus.
   - Popup classes over the window that are not pasted are logged once each, to extend the list;
     `menu_overlay_heuristic` (off) also pastes unknown small captionless tool / topmost popups.
   - `presenter_sidecar/overlay.py` (pure rules and rect mapping; `tests/test_overlay.py`).
@@ -90,7 +96,9 @@ All notable changes to this project are documented here. The format follows
   the projected window's rectangle every frame, so menus, file pickers, system dialogs and anything else on
   top are shown. Anything that pops up there is projected: press F8 before private actions. Every visible
   window of the panel browser (the panel and its context menus, drop-downs, autofill and permission pop-ups)
-  is painted black where it overlaps, with current rects every 0.1 s (`overlay.panel_windows`). No screen
+  is painted black where it overlaps, with current rects every frame (`overlay.panel_windows`); the panel's
+  processes are kept until they exit, so a reload that briefly changes its title does not lift the masks
+  (`overlay.merge_panel_pids`). No screen
   copy while the projected window lies on the projector (the warning shows; the last frame stays), and a
   failed copy keeps the last frame. The menu overlay is skipped in this mode.
   - Config on/off values given as strings (`"false"`, `"0"`, `"off"`) read as false (`overlay.flag`).

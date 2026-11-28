@@ -54,7 +54,7 @@ DEFAULTS: dict = {
     "menu_overlay": True,
     "menu_overlay_classes": list(DEFAULT_MENU_CLASSES),
     "menu_overlay_heuristic": False,
-    "menu_overlay_margin": 8,
+    "menu_overlay_margin": 8,  # scan pre-filter only: pasted menus are always cut at the window's edge
     "menu_overlay_max_size": [1600, 1400],
     "menu_overlay_interval_sec": 0.1,
     # Start in region mode (screen copy of the window's rectangle) instead of window capture.

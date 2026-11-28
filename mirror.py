@@ -46,9 +46,10 @@ from presenter_sidecar.geometry import (arrow_polygons, contains, crop_in_window
                                         sample_grid)
 from presenter_sidecar.hotkeys import hotkey_table
 from presenter_sidecar.i18n import t
-from presenter_sidecar.overlay import (Foreground, OverlaySettings, TopWin, context_ok, flag, over_any,
-                                       overlay_action, overlay_blits, overlay_settings, panel_windows, pick_menus,
-                                       popup_style, private_masks, region_grab, unknown_popups)
+from presenter_sidecar.overlay import (Foreground, OverlaySettings, TopWin, context_ok, flag, merge_panel_pids,
+                                       open_menu_pids, over_any, overlay_action, overlay_blits, overlay_settings,
+                                       panel_windows, pick_menus, popup_style, private_masks, region_grab,
+                                       unknown_popups)
 from presenter_sidecar.preview import PREVIEW_FILE, PreviewWriter, preview_settings, scaled_size
 from presenter_sidecar.windows import WindowInfo, auto_pick, focus_target, newest, popup_eligible, source_allowed
 
@@ -90,6 +91,11 @@ user32.GetAncestor.argtypes = [H, ctypes.c_uint]
 user32.GetAncestor.restype = H
 user32.GetWindowThreadProcessId.argtypes = [H, ctypes.POINTER(wintypes.DWORD)]
 user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+user32.GetWindowTextLengthW.argtypes = [H]
+kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+kernel32.OpenProcess.restype = wintypes.HANDLE
+kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
 user32.SetForegroundWindow.argtypes = [H]
 user32.BringWindowToTop.argtypes = [H]
 user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
@@ -123,7 +129,8 @@ ABM_NEW, ABM_REMOVE, ABM_QUERYPOS, ABM_SETPOS = 0, 1, 2, 3
 ABE_RIGHT = 2
 DWMWA_EXTENDED_FRAME_BOUNDS, DWMWA_CLOAKED = 9, 14
 SW_MAXIMIZE, SW_RESTORE, SW_SHOWNOACTIVATE = 3, 9, 4
-GA_ROOT = 2
+GA_ROOT, GA_ROOTOWNER = 2, 3
+PROCESS_QUERY_LIMITED_INFORMATION, STILL_ACTIVE = 0x1000, 259
 PW_RENDERFULLCONTENT = 2
 
 
@@ -212,6 +219,27 @@ def window_pid(h) -> int:
     pid = wintypes.DWORD(0)
     user32.GetWindowThreadProcessId(h, ctypes.byref(pid))
     return pid.value
+
+
+def root_owner(h) -> int:
+    """The window at the top of ``h``'s parent and owner chain (``h`` itself when it has neither)."""
+    return int(user32.GetAncestor(h, GA_ROOTOWNER) or h or 0)
+
+
+def titled(h) -> bool:
+    return user32.GetWindowTextLengthW(h) > 0
+
+
+def process_alive(pid: int) -> bool:
+    """Is the process still running? (Access denied → assume it is: keeping a mask is the safe side.)"""
+    hp = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not hp:
+        return ctypes.GetLastError() == 5  # ERROR_ACCESS_DENIED
+    try:
+        code = wintypes.DWORD(0)
+        return bool(kernel32.GetExitCodeProcess(hp, ctypes.byref(code))) and code.value == STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(hp)
 
 
 def top_windows() -> list[int]:
@@ -416,7 +444,11 @@ def menu_windows(classes) -> list[TopWin]:
         w = TopWin(int(hwnd), cls, (0, 0, 0, 0), style=user32.GetWindowLongPtrW(hwnd, GWL_STYLE) & 0xFFFFFFFF,
                    exstyle=user32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE) & 0xFFFFFFFF)
         if (cls in classes or popup_style(w)) and not is_cloaked(hwnd):
-            found.append(replace(w, rect=frame_rects(hwnd)[1], pid=window_pid(hwnd)))
+            own = root_owner(hwnd)
+            own = 0 if own == int(hwnd) else own  # judged by its owner window (overlay.menu_allowed)
+            found.append(replace(w, rect=frame_rects(hwnd)[1], pid=window_pid(hwnd), owner=own,
+                                 owner_cls=class_name(own) if own else "",
+                                 owner_shown=bool(own and user32.IsWindowVisible(own) and titled(own))))
         return 1
 
     proc = ctypes.WINFUNCTYPE(ctypes.c_bool, H, wintypes.LPARAM)
@@ -447,9 +479,9 @@ def foreground() -> Foreground:
     fg = user32.GetForegroundWindow()
     if not fg:
         return Foreground()
-    root = user32.GetAncestor(fg, GA_ROOT) or fg
-    return Foreground(root=int(root), pid=window_pid(fg), cls=class_name(root),
-                      visible=bool(user32.IsWindowVisible(root)))
+    root = root_owner(fg)  # a focused menu or dialog resolves to the window that owns it
+    return Foreground(root=root, pid=window_pid(fg), cls=class_name(root),
+                      visible=bool(user32.IsWindowVisible(root)), titled=titled(root))
 
 
 class MenuOverlay:
@@ -485,9 +517,11 @@ class MenuOverlay:
             return
         self.last_scan = now
         owner_hwnds, owner_pids = skip.pop("owner_hwnds"), skip.pop("owner_pids")
-        self.ctx_ok = context_ok(foreground(), owner_hwnds, owner_pids, self.s, self.ctx_ok)
-        wins = menu_windows(self.s.classes)
-        self.menus = pick_menus(wins, frame, self.s, owner_pids=owner_pids, ctx_ok=self.ctx_ok, **skip)
+        wins = menu_windows(self.s.classes | {"#32768"})
+        fg = foreground()
+        self.ctx_ok = context_ok(fg, owner_hwnds, owner_pids, self.s, self.ctx_ok, open_menu_pids(wins))
+        self.menus = pick_menus(wins, frame, self.s, owner_pids=owner_pids, owner_hwnds=owner_hwnds,
+                                ctx_ok=self.ctx_ok, fg=fg, **skip)
         for cls in unknown_popups(wins, frame, self.s, **skip):
             if cls not in self.logged:  # once per class: add it to menu_overlay_classes if it is a menu
                 self.logged.add(cls)
@@ -852,7 +886,6 @@ def main():
     panels: list[tuple[int, tuple, int]] = []    # (hwnd, frame, pid) of the panel windows, every 2 s
     panel_pids: set[int] = set()                 # the panel browser's processes (its own profile)
     masks: list[tuple] = []                      # region mode: rects of all panel-process windows
-    last_mask_scan = 0.0
     log("menu overlay:", "on" if overlay.s.enabled else "off", "| region mode:", "on" if region else "off")
 
     # ---- pointer assets
@@ -1020,7 +1053,7 @@ def main():
                         note(t(LANG, "note.clip_on") if clip else t(LANG, "note.clip_off"))
                     elif ev == "region":
                         region = not region
-                        last_panel_fix = last_mask_scan = 0.0  # fresh panel pids and masks right away
+                        last_panel_fix = 0.0  # fresh panel pids right away
                         if region and wgc is not None:
                             wgc.stop()  # restarted by the capture below when region mode ends
                         log("region mode", "on" if region else "off")
@@ -1038,9 +1071,9 @@ def main():
                 if t0 - last_panel_fix > 2.0:
                     last_panel_fix = t0
                     panels = []
-                    panel_pids = set()
+                    found_pids = set()
                     for pnl in find_windows(PANEL_TITLE, "Chrome_WidgetWin_1"):
-                        panel_pids.add(window_pid(pnl))
+                        found_pids.add(window_pid(pnl))
                         if user32.IsIconic(pnl):
                             continue
                         panels.append((int(pnl), frame_rects(pnl)[1], window_pid(pnl)))
@@ -1051,6 +1084,9 @@ def main():
                         is_top = bool(user32.GetWindowLongPtrW(pnl, GWL_EXSTYLE) & WS_EX_TOPMOST)
                         if fr_p != tuple(panel_rect) or topmost != is_top:
                             place_window(pnl, panel_rect, topmost=topmost)
+                    # A reload briefly changes the title: keep the panel's processes until they exit, so
+                    # the region masks and the overlay's skip_pids never lapse.
+                    panel_pids = merge_panel_pids(panel_pids, found_pids, process_alive)
 
                 # ---- source window
                 prev_raw = raw_state
@@ -1130,10 +1166,10 @@ def main():
                         (pygame.transform.smoothscale if smooth else pygame.transform.scale)(img, (tw, th), scaled)
                         geom = (fr, scale, ox, oy, tw, th)  # matches the visible frame fr
                         if region:  # every window of the panel's process over the rectangle is painted black
-                            if t0 - last_mask_scan >= overlay.s.interval:  # current rects, every 0.1 s
-                                last_mask_scan = t0
-                                masks = panel_windows(pid_windows(panel_pids), panel_pids,
-                                                      {int(active), int(source.hwnd or 0)})
+                            # Every region frame (one EnumWindows): a panel <select> or autofill list
+                            # that opens between overlay scans must never be projected unmasked.
+                            masks = panel_windows(pid_windows(panel_pids), panel_pids,
+                                                  {int(active), int(source.hwnd or 0)})
                             for x, y, w_, h_ in private_masks(fr, masks, ox, oy, tw, th):
                                 scaled.fill((0, 0, 0), pygame.Rect(x - ox, y - oy, w_, h_))
                         live = True
@@ -1141,12 +1177,16 @@ def main():
                         cap_n += 1
 
                 # ---- menu overlay (window capture only: region mode already shows menus). Frozen: keep the
-                # menus pasted when F8 was pressed; blank, or no live frame: none.
+                # menus pasted when F8 was pressed; blank: keep them with the last frame (not drawn); no
+                # live frame: none.
                 act = overlay_action(live=live and geom is not None, region=region, enabled=overlay.s.enabled,
-                                     frozen=frozen)
+                                     frozen=frozen, blanked=blanked)
                 if act == "update":
                     try:
+                        # The source, the followed popup and their root owners (a projected window
+                        # that is itself owned, e.g. a slide show owned by the editor window).
                         owner_hwnds = {int(active), int(source.hwnd or 0)} - {0}
+                        owner_hwnds |= {root_owner(h) for h in owner_hwnds}
                         owner_pids = {window_pid(h) for h in owner_hwnds} - {0}
                         pids = panel_pids - owner_pids
                         overlay.update(t0, sct, geom, smooth, private=[p[1] for p in panels], skip_pids=pids,
